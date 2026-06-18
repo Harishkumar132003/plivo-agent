@@ -26,6 +26,9 @@ from starlette.responses import Response
 # Load environment variables from .env file
 load_dotenv()
 
+# Import bot at startup to pre-warm VAD and libraries before any call comes in
+from bot import bot
+
 app = FastAPI(
     title="Plivo AI Voice Agent",
     description="AI Voice Agent for Order Status — powered by Pipecat + Plivo",
@@ -132,6 +135,8 @@ async def start_inbound_call(
     print(f"Inbound call — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
     body_data = {}
+    if call_uuid:
+        body_data["call_uuid"] = call_uuid
     if from_number:
         body_data["from"] = from_number
     if to_number:
@@ -249,6 +254,8 @@ async def outbound_answer_webhook(
     print(f"Outbound call answered — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
     body_data = {"call_type": "outbound"}
+    if call_uuid:
+        body_data["call_uuid"] = call_uuid
     if from_number:
         body_data["from"] = from_number
     if to_number:
@@ -291,18 +298,23 @@ async def websocket_endpoint(
 
     try:
         from pipecat.runner.types import WebSocketRunnerArguments
-        from bot import bot
 
         runner_args = WebSocketRunnerArguments(websocket=websocket)
         runner_args.handle_sigint = False
 
-        await bot(runner_args)
+        call_uuid = body_data.get("call_uuid")
+        await bot(runner_args, call_uuid=call_uuid)
 
     except Exception as e:
         print(f"Error in WebSocket endpoint: {e}")
         import traceback
         traceback.print_exc()
-        await websocket.close()
+        from starlette.websockets import WebSocketState
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
 
 # ─── Health Check ──────────────────────────────────────────────────────────────
