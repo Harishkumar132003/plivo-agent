@@ -103,7 +103,7 @@ def build_stream_xml(websocket_url: str) -> str:
 # ─── Inbound Call Webhook ──────────────────────────────────────────────────────
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "POST"])
 async def start_inbound_call(
     request: Request,
     CallUUID: str = Query(None, description="Plivo call UUID"),
@@ -117,13 +117,25 @@ async def start_inbound_call(
     Configure this URL as the Answer URL in your Plivo application/number.
     Example: https://your-ngrok-url.ngrok.io/
     """
-    print(f"Inbound call — From: {From}, To: {To}, UUID: {CallUUID}")
+    # Plivo can send params in query or POST form data
+    form_data = {}
+    if request.method == "POST":
+        try:
+            form_data = await request.form()
+        except Exception:
+            pass
+
+    call_uuid = CallUUID or form_data.get("CallUUID")
+    from_number = From or form_data.get("From")
+    to_number = To or form_data.get("To")
+
+    print(f"Inbound call — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
     body_data = {}
-    if From:
-        body_data["from"] = From
-    if To:
-        body_data["to"] = To
+    if from_number:
+        body_data["from"] = from_number
+    if to_number:
+        body_data["to"] = to_number
 
     env = os.getenv("ENV", "local").lower()
     if env == "production":
@@ -211,7 +223,7 @@ async def make_outbound_call(request: Request, body: OutboundCallRequest = None)
         raise HTTPException(status_code=500, detail=f"Failed to initiate call: {str(e)}")
 
 
-@app.get("/outbound-answer")
+@app.api_route("/outbound-answer", methods=["GET", "POST"])
 async def outbound_answer_webhook(
     request: Request,
     CallUUID: str = Query(None),
@@ -223,13 +235,24 @@ async def outbound_answer_webhook(
     Plivo hits this URL when the customer answers the outbound call.
     Returns XML to connect the call to the AI WebSocket agent.
     """
-    print(f"Outbound call answered — From: {From}, To: {To}, UUID: {CallUUID}")
+    form_data = {}
+    if request.method == "POST":
+        try:
+            form_data = await request.form()
+        except Exception:
+            pass
+
+    call_uuid = CallUUID or form_data.get("CallUUID")
+    from_number = From or form_data.get("From")
+    to_number = To or form_data.get("To")
+
+    print(f"Outbound call answered — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
     body_data = {"call_type": "outbound"}
-    if From:
-        body_data["from"] = From
-    if To:
-        body_data["to"] = To
+    if from_number:
+        body_data["from"] = from_number
+    if to_number:
+        body_data["to"] = to_number
 
     host = request.headers.get("host")
     if not host:
