@@ -271,6 +271,27 @@ async def outbound_answer_webhook(
     return Response(content=xml, media_type="application/xml")
 
 
+# ─── Call Forwarding Webhook ──────────────────────────────────────────────────
+
+
+@app.api_route("/forward-call", methods=["GET", "POST"])
+async def forward_call_webhook(
+    ForwardTo: str = Query("+918610467370", description="Number to forward to")
+):
+    """
+    Webhook for forwarding the call.
+    Returns XML to dial another number.
+    """
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Number>{ForwardTo}</Number>
+  </Dial>
+</Response>"""
+    print(f"Returning XML for forwarding call to {ForwardTo}: {xml}")
+    return Response(content=xml, media_type="application/xml")
+
+
 # ─── WebSocket Handler ─────────────────────────────────────────────────────────
 
 
@@ -303,7 +324,9 @@ async def websocket_endpoint(
         runner_args.handle_sigint = False
 
         call_uuid = body_data.get("call_uuid")
-        await bot(runner_args, call_uuid=call_uuid)
+        host = websocket.headers.get("x-forwarded-host") or websocket.headers.get("host") or websocket.url.netloc
+        print(f"WebSocket host detected: {host}")
+        await bot(runner_args, call_uuid=call_uuid, host=host)
 
     except Exception as e:
         print(f"Error in WebSocket endpoint: {e}")
