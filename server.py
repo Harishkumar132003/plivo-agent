@@ -14,12 +14,14 @@ Plivo XML Server
 import base64
 import json
 import os
+from contextlib import asynccontextmanager
 
 import plivo
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from starlette.responses import Response
 
@@ -28,10 +30,18 @@ load_dotenv()
 
 # Import bot at startup to pre-warm VAD and libraries before any call comes in
 from bot import bot
+from database import db_get_all_calls, init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
 
 app = FastAPI(
     title="Plivo AI Voice Agent",
     description="AI Voice Agent for Order Status — powered by Pipecat + Plivo",
+    lifespan=lifespan,
 )
 
 # Allow cross-origin requests (useful for frontend triggers)
@@ -276,19 +286,23 @@ async def outbound_answer_webhook(
 
 @app.api_route("/forward-call", methods=["GET", "POST"])
 async def forward_call_webhook(
-    ForwardTo: str = Query("+918610467370", description="Number to forward to")
+    request: Request,
+    ForwardTo: str = Query(None, description="Number to forward to (overrides env default)")
 ):
     """
     Webhook for forwarding the call.
-    Returns XML to dial another number.
+    Returns XML to dial the support agent number.
+    The target number is read from FORWARD_TO_NUMBER env var (fallback: +918610467370).
     """
+    # Resolve forward-to number: query param > env var > hardcoded fallback
+    forward_number = ForwardTo or os.getenv("FORWARD_TO_NUMBER", "+918610467370")
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Number>{ForwardTo}</Number>
+    <Number>{forward_number}</Number>
   </Dial>
 </Response>"""
-    print(f"Returning XML for forwarding call to {ForwardTo}: {xml}")
+    print(f"Returning XML for forwarding call to {forward_number}: {xml}")
     return Response(content=xml, media_type="application/xml")
 
 
@@ -324,9 +338,10 @@ async def websocket_endpoint(
         runner_args.handle_sigint = False
 
         call_uuid = body_data.get("call_uuid")
+        from_number = body_data.get("from")
         host = websocket.headers.get("x-forwarded-host") or websocket.headers.get("host") or websocket.url.netloc
         print(f"WebSocket host detected: {host}")
-        await bot(runner_args, call_uuid=call_uuid, host=host)
+        await bot(runner_args, call_uuid=call_uuid, host=host, caller_number=from_number)
 
     except Exception as e:
         print(f"Error in WebSocket endpoint: {e}")
@@ -353,6 +368,31 @@ async def health_check():
         "customer_number": os.getenv("CUSTOMER_NUMBER", "not configured"),
         "env": os.getenv("ENV", "local"),
     }
+
+
+
+# ─── Dashboard & API Endpoints ──────────────────────────────────────────────────
+
+
+@app.get("/api/calls")
+async def get_calls_api():
+    """Retrieve call logs."""
+    try:
+        calls = db_get_all_calls()
+        return calls
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard():
+    """Return the beautiful Call History dashboard."""
+    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+    if not os.path.exists(html_path):
+        raise HTTPException(status_code=404, detail="Dashboard template not found")
+    with open(html_path, encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
 
 
 # ─── Entry Point ───────────────────────────────────────────────────────────────
