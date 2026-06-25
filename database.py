@@ -35,17 +35,19 @@ def init_db():
         print(f"MongoDB connection failed during initialization: {e}")
         raise e
 
-def db_create_call(phone_number: str) -> str:
+def db_create_call(phone_number: str, call_uuid: str = "") -> str:
     """Creates a new call record in MongoDB and returns its string _id."""
     try:
         db = get_db()
         res = db.calls.insert_one({
             "phone_number": phone_number,
+            "call_uuid": call_uuid,
             "time_of_call": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "duration": 0,
             "order_number": "",
             "transcript": [],
-            "call_forwarded": False
+            "call_forwarded": False,
+            "forwarded_transcript": ""
         })
         return str(res.inserted_id)
     except PyMongoError as e:
@@ -111,6 +113,19 @@ def db_set_forwarded(db_id: str, forwarded: bool = True):
         )
     except PyMongoError as e:
         print(f"Failed to update forwarded status in MongoDB: {e}")
+
+def db_set_forwarded_transcript_by_uuid(call_uuid: str, transcription_text: str):
+    """Updates the forwarded transcript using the call UUID."""
+    if not call_uuid or not transcription_text:
+        return
+    try:
+        db = get_db()
+        db.calls.update_one(
+            {"call_uuid": call_uuid},
+            {"$set": {"forwarded_transcript": transcription_text}}
+        )
+    except PyMongoError as e:
+        print(f"Failed to update forwarded transcript in MongoDB: {e}")
 
 def db_get_all_calls():
     """Retrieves all call logs, ordered by time of call descending, mapping _id to id."""

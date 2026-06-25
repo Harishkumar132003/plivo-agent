@@ -21,7 +21,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.responses import Response
 
@@ -30,7 +30,7 @@ load_dotenv()
 
 # Import bot at startup to pre-warm VAD and libraries before any call comes in
 from bot import bot
-from database import db_get_all_calls, init_db
+from database import db_get_all_calls, init_db, db_set_forwarded_transcript_by_uuid
 
 
 @asynccontextmanager
@@ -130,6 +130,11 @@ async def start_inbound_call(
     Configure this URL as the Answer URL in your Plivo application/number.
     Example: https://your-ngrok-url.ngrok.io/
     """
+    # If the user opens the root URL in a browser, redirect them to the dashboard
+    accept_header = request.headers.get("accept", "")
+    if request.method == "GET" and not CallUUID and not From and not To and "text/html" in accept_header:
+        return RedirectResponse(url="/dashboard")
+
     # Plivo can send params in query or POST form data
     form_data = {}
     if request.method == "POST":
@@ -296,14 +301,57 @@ async def forward_call_webhook(
     """
     # Resolve forward-to number: query param > env var > hardcoded fallback
     forward_number = ForwardTo or os.getenv("FORWARD_TO_NUMBER", "+918610467370")
+    
+    # Construct transcription callback URL
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    transcription_url = f"https://{host}/forward-transcription-callback"
+    
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Record 
+    startOnDialAnswer="true" 
+    redirect="false" 
+    transcriptionType="auto" 
+    transcriptionUrl="{transcription_url}" 
+    transcriptionMethod="POST" />
   <Dial>
     <Number>{forward_number}</Number>
   </Dial>
 </Response>"""
-    print(f"Returning XML for forwarding call to {forward_number}: {xml}")
+    print(f"Returning XML for forwarding call to {forward_number} with transcription: {xml}")
     return Response(content=xml, media_type="application/xml")
+
+
+@app.post("/forward-transcription-callback")
+async def forward_transcription_callback(request: Request):
+    """
+    Callback endpoint where Plivo posts the transcription of the forwarded call.
+    """
+    try:
+        form_data = await request.form()
+        payload = dict(form_data)
+    except Exception:
+        payload = {}
+
+    if not payload:
+        try:
+            payload = await request.json()
+        except Exception:
+            pass
+
+    print(f"Received transcription callback: {payload}")
+
+    call_uuid = payload.get("call_uuid") or payload.get("CallUUID")
+    transcription_text = payload.get("transcription") or payload.get("TranscriptionText") or payload.get("transcription_text")
+
+    if call_uuid and transcription_text:
+        print(f"Saving transcription for call {call_uuid}: {transcription_text}")
+        db_set_forwarded_transcript_by_uuid(call_uuid, transcription_text)
+        return {"status": "success"}
+    else:
+        print(f"Missing call_uuid or transcription in callback: {payload}")
+        return {"status": "ignored"}
+
 
 
 # ─── WebSocket Handler ─────────────────────────────────────────────────────────

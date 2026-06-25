@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from google.genai.types import EndSensitivity, StartSensitivity
 from loguru import logger
 from pipecat.adapters.schemas.direct_function import tool_options
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import LLMMessagesUpdateFrame, LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -109,7 +109,7 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
         "language": "english"
     }
 
-    db_id = db_create_call(caller_number or "Unknown")
+    db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid)
     start_time = time.time()
 
     # Placeholders for nested function access
@@ -120,8 +120,10 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
     async def check_order_status(params: FunctionCallParams, order_id: str) -> None:
         """Check the current status of a customer's order from our system.
 
+        IMPORTANT: Only call this function AFTER the customer has spoken their 4-digit Order ID in their most recent message. Never call this speculatively or before you have asked for and received the Order ID.
+
         Args:
-            order_id: The 4-digit numeric order ID provided by the customer, e.g. "6180".
+            order_id: The 4-digit numeric order ID spoken by the customer, e.g. "6180". Convert spoken numbers to digits before calling.
         """
         print(f"\n>>> [ZOHO API] Checking status for order ID: {order_id}")
         logger.info(f"Calling Zoho API for order ID: {order_id}")
@@ -154,10 +156,10 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
 
     @tool_options(cancel_on_interruption=False, timeout_secs=5)
     async def set_language(params: FunctionCallParams, language: str) -> None:
-        """Switch the conversation language only when the customer explicitly requests a language change mid-call (e.g. says 'please speak in Tamil'). Do NOT call this automatically on every turn.
+        """Switch the conversation language. Call this automatically as soon as you detect the customer speaking Tamil or Malayalam — do NOT wait for them to explicitly ask. Also call this if the customer asks to switch language mid-call.
 
         Args:
-            language: The new language requested. Must be one of: "english", "tamil", or "malayalam".
+            language: The detected or requested language. Must be one of: "english", "tamil", or "malayalam".
         """
         print(f"\n>>> [SET LANGUAGE] Switching to: {language}")
         logger.info(f"Switching language to: {language}")
@@ -279,11 +281,11 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
         api_key=os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY")),
         settings=GeminiLiveLLMService.Settings(
             model="models/gemini-2.5-flash-native-audio-latest",
-            voice="Puck",
-            language=Language.EN_US,
+            voice="Sulafat",  # Charon is more adaptive to accent instructions via system prompt
+            language=Language.EN_US,  # en-IN is unsupported by native-audio model; accent via system prompt
             system_instruction=SYSTEM_PROMPT,
             vad=GeminiVADParams(
-                silence_duration_ms=250,
+                silence_duration_ms=500,
                 start_sensitivity=StartSensitivity.START_SENSITIVITY_HIGH,
                 end_sensitivity=EndSensitivity.END_SENSITIVITY_HIGH,
             ),
@@ -333,8 +335,18 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
     async def on_client_connected(transport, client):  # noqa: ANN001
         """Kick off the conversation with an AI greeting when the call connects."""
         logger.info("Client connected — triggering immediate greeting")
-        # Queue immediately — Gemini Live buffers this until the session is open.
-        await worker.queue_frames([LLMRunFrame()])
+
+        # Push frames IMMEDIATELY (no delay). The Gemini session takes ~500ms to open.
+        # If these frames arrive before the session opens, GeminiLive sets
+        # _run_llm_when_session_ready=True, so it fires _create_initial_response
+        # the moment the session is ready — guaranteeing the agent speaks first.
+        # LLMRunFrame is a fallback in case the session was already open.
+        logger.info("Pushing LLMMessagesUpdateFrame + LLMRunFrame immediately to trigger greeting")
+        await worker.queue_frames([
+            LLMMessagesUpdateFrame(messages=context.messages),
+            LLMRunFrame(),
+        ])
+        logger.info("Greeting frames queued — agent should speak now")
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):  # noqa: ANN001
