@@ -30,7 +30,7 @@ load_dotenv()
 
 # Import bot at startup to pre-warm VAD and libraries before any call comes in
 from bot import bot
-from database import db_get_all_calls, init_db, db_set_forwarded_transcript_by_uuid
+from database import db_get_all_calls, db_set_forwarded_transcript_by_uuid, init_db
 
 
 @asynccontextmanager
@@ -65,7 +65,7 @@ def get_plivo_client() -> plivo.RestClient:
     return plivo.RestClient(auth_id, auth_token)
 
 
-def get_websocket_url(host: str, body_data: dict = None) -> str:
+def get_websocket_url(host: str, body_data: dict | None = None) -> str:
     """Construct WebSocket URL based on environment variables with query parameters."""
     env = os.getenv("ENV", "local").lower()
 
@@ -143,9 +143,13 @@ async def start_inbound_call(
         except Exception:
             pass
 
-    call_uuid = CallUUID or form_data.get("CallUUID")
-    from_number = From or form_data.get("From")
-    to_number = To or form_data.get("To")
+    raw_call_uuid = CallUUID or form_data.get("CallUUID")
+    raw_from_number = From or form_data.get("From")
+    raw_to_number = To or form_data.get("To")
+
+    call_uuid = str(raw_call_uuid) if raw_call_uuid else None
+    from_number = str(raw_from_number) if raw_from_number else None
+    to_number = str(raw_to_number) if raw_to_number else None
 
     print(f"Inbound call — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
@@ -180,11 +184,11 @@ async def start_inbound_call(
 
 class OutboundCallRequest(BaseModel):
     """Optional request body to override the default customer number."""
-    customer_number: str | None = None  # defaults to CUSTOMER_NUMBER from .env
+    customer_number: str | None = None  # defaults to PLIVO_CALLER_NUMBER from .env
 
 
 @app.post("/outbound-call")
-async def make_outbound_call(request: Request, body: OutboundCallRequest = None):
+async def make_outbound_call(request: Request, body: OutboundCallRequest | None = None):
     """
     Trigger an outbound call to the customer (+91 80 3133 9945 by default).
 
@@ -208,7 +212,7 @@ async def make_outbound_call(request: Request, body: OutboundCallRequest = None)
 
     # Resolve the TO number
     to_number = (body.customer_number if body and body.customer_number else None) or os.getenv(
-        "CUSTOMER_NUMBER", "+918031339945"
+        "PLIVO_CALLER_NUMBER", "+918031339945"
     )
 
     # The answer URL for the outbound call — routes through the same WebSocket agent
@@ -262,9 +266,13 @@ async def outbound_answer_webhook(
         except Exception:
             pass
 
-    call_uuid = CallUUID or form_data.get("CallUUID")
-    from_number = From or form_data.get("From")
-    to_number = To or form_data.get("To")
+    raw_call_uuid = CallUUID or form_data.get("CallUUID")
+    raw_from_number = From or form_data.get("From")
+    raw_to_number = To or form_data.get("To")
+
+    call_uuid = str(raw_call_uuid) if raw_call_uuid else None
+    from_number = str(raw_from_number) if raw_from_number else None
+    to_number = str(raw_to_number) if raw_to_number else None
 
     print(f"Outbound call answered — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
@@ -297,10 +305,10 @@ async def forward_call_webhook(
     """
     Webhook for forwarding the call.
     Returns XML to dial the support agent number.
-    The target number is read from FORWARD_TO_NUMBER env var (fallback: +918610467370).
+    The target number is read from FORWARD_TO_NUMBER .
     """
     # Resolve forward-to number: query param > env var > hardcoded fallback
-    forward_number = ForwardTo or os.getenv("FORWARD_TO_NUMBER", "+918610467370")
+    forward_number = ForwardTo or os.getenv("FORWARD_TO_NUMBER")
     
     # Construct transcription callback URL
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
@@ -341,8 +349,11 @@ async def forward_transcription_callback(request: Request):
 
     print(f"Received transcription callback: {payload}")
 
-    call_uuid = payload.get("call_uuid") or payload.get("CallUUID")
-    transcription_text = payload.get("transcription") or payload.get("TranscriptionText") or payload.get("transcription_text")
+    raw_call_uuid = payload.get("call_uuid") or payload.get("CallUUID")
+    raw_transcription = payload.get("transcription") or payload.get("TranscriptionText") or payload.get("transcription_text")
+
+    call_uuid = str(raw_call_uuid) if raw_call_uuid else None
+    transcription_text = str(raw_transcription) if raw_transcription else None
 
     if call_uuid and transcription_text:
         print(f"Saving transcription for call {call_uuid}: {transcription_text}")
@@ -385,8 +396,8 @@ async def websocket_endpoint(
         runner_args = WebSocketRunnerArguments(websocket=websocket)
         runner_args.handle_sigint = False
 
-        call_uuid = body_data.get("call_uuid")
-        from_number = body_data.get("from")
+        call_uuid = str(body_data.get("call_uuid")) if body_data.get("call_uuid") else None
+        from_number = str(body_data.get("from")) if body_data.get("from") else None
         host = websocket.headers.get("x-forwarded-host") or websocket.headers.get("host") or websocket.url.netloc
         print(f"WebSocket host detected: {host}")
         await bot(runner_args, call_uuid=call_uuid, host=host, caller_number=from_number)
@@ -413,7 +424,7 @@ async def health_check():
         "status": "ok",
         "service": "Plivo AI Voice Agent",
         "caller_number": os.getenv("PLIVO_CALLER_NUMBER", "not configured"),
-        "customer_number": os.getenv("CUSTOMER_NUMBER", "not configured"),
+        "customer_number": os.getenv("PLIVO_CALLER_NUMBER", "not configured"),
         "env": os.getenv("ENV", "local"),
     }
 

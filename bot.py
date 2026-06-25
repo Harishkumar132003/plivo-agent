@@ -15,10 +15,11 @@ Plivo AI Voice Agent
 import asyncio
 import os
 import time
+import plivo
 
 import aiohttp
 from dotenv import load_dotenv
-from google.genai.types import EndSensitivity, StartSensitivity
+from google.genai.types import EndSensitivity, StartSensitivity, ThinkingConfig
 from loguru import logger
 from pipecat.adapters.schemas.direct_function import tool_options
 from pipecat.frames.frames import LLMMessagesUpdateFrame, LLMRunFrame
@@ -36,7 +37,6 @@ from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.services.google.gemini_live.llm import (
     GeminiLiveLLMService,
     GeminiVADParams,
-    ThinkingConfig,
 )
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transcriptions.language import Language
@@ -102,19 +102,25 @@ CONNECT_GREETING_TRIGGER = "[call connected] Greet the caller immediately."
 
 # ─── Bot Pipeline ──────────────────────────────────────────────────────────────
 
-async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str = None, host: str = None, caller_number: str = None) -> None:
+async def run_bot(
+    transport: BaseTransport,
+    handle_sigint: bool,
+    call_uuid: str | None = None,
+    host: str | None = None,
+    caller_number: str | None = None,
+) -> None:
     """Set up and run the Pipecat pipeline."""
 
     state = {
         "language": "english"
     }
 
-    db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid)
+    db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid or "")
     start_time = time.time()
 
     # Placeholders for nested function access
-    llm = None
-    context = None
+    llm: GeminiLiveLLMService | None = None
+    context: LLMContext | None = None
 
     @tool_options(cancel_on_interruption=False, timeout_secs=15)
     async def check_order_status(params: FunctionCallParams, order_id: str) -> None:
@@ -180,15 +186,16 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
                 llm.set_language(stt_lang)
 
             # Restrict the LLM strictly to the chosen language
-            context.add_message({
-                "role": "system",
-                "content": (
-                    f"The user selected {language.upper()} ({tts_lang}). "
-                    f"From now on, you MUST converse ONLY in {language.upper()} using its script. "
-                    "Do NOT respond in English, Tamil, Malayalam, or any other language "
-                    "except the one selected. Keep the rule absolute."
-                )
-            })
+            if context is not None:
+                context.add_message({
+                    "role": "system",
+                    "content": (
+                        f"The user selected {language.upper()} ({tts_lang}). "
+                        f"From now on, you MUST converse ONLY in {language.upper()} using its script. "
+                        "Do NOT respond in English, Tamil, Malayalam, or any other language "
+                        "except the one selected. Keep the rule absolute."
+                    )
+                })
 
             await params.result_callback(f"Language set to {language} successfully.")
         else:
@@ -202,11 +209,9 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
 
         # Call Plivo API to hang up the call after a short delay
         if call_uuid:
-            import asyncio
             async def hangup_plivo_call():
                 await asyncio.sleep(3.0) # let Gemini finish playing its goodbye sentence
                 try:
-                    import plivo
                     auth_id = os.getenv("PLIVO_AUTH_ID")
                     auth_token = os.getenv("PLIVO_AUTH_TOKEN")
                     client = plivo.RestClient(auth_id, auth_token)
@@ -218,7 +223,6 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
 
             asyncio.create_task(hangup_plivo_call())
         else:
-            import asyncio
             async def cancel_worker_delayed():
                 await asyncio.sleep(3.0)
                 await worker.cancel()
@@ -240,11 +244,9 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
             db_set_forwarded(db_id, True)
 
         if call_uuid and host:
-            import asyncio
             async def transfer_plivo_call():
                 await asyncio.sleep(4.0) # Let Gemini finish speaking the transfer message
                 try:
-                    import plivo
                     auth_id = os.getenv("PLIVO_AUTH_ID")
                     auth_token = os.getenv("PLIVO_AUTH_TOKEN")
                     client = plivo.RestClient(auth_id, auth_token)
@@ -264,7 +266,6 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
             asyncio.create_task(transfer_plivo_call())
         else:
             logger.warning("Cannot forward call: call_uuid or host is not set.")
-            import asyncio
             async def cancel_worker_delayed():
                 await asyncio.sleep(4.0)
                 await worker.cancel()
@@ -278,7 +279,7 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
     )
 
     llm = GeminiLiveLLMService(
-        api_key=os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY")),
+        api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "",
         settings=GeminiLiveLLMService.Settings(
             model="models/gemini-2.5-flash-native-audio-latest",
             voice="Sulafat",  # Charon is more adaptive to accent instructions via system prompt
@@ -365,7 +366,12 @@ async def run_bot(transport: BaseTransport, handle_sigint: bool, call_uuid: str 
 
 # ─── Entry Points ──────────────────────────────────────────────────────────────
 
-async def bot(runner_args: RunnerArguments, call_uuid: str = None, host: str = None, caller_number: str = None) -> None:
+async def bot(
+    runner_args: RunnerArguments,
+    call_uuid: str | None = None,
+    host: str | None = None,
+    caller_number: str | None = None,
+) -> None:
     """Main bot entry point compatible with Pipecat Cloud."""
 
     transport_params = {
@@ -380,11 +386,14 @@ async def bot(runner_args: RunnerArguments, call_uuid: str = None, host: str = N
     # Disable automatic call hangup on pipeline cancel/end. This prevents Plivo from
     # immediately terminating the call when the WebSocket finishes, allowing our
     # REST API transfer/forwarding logic to succeed and bridge the caller.
-    if hasattr(transport, "_params") and hasattr(transport._params, "serializer"):
-        serializer = transport._params.serializer
-        if hasattr(serializer, "_params") and hasattr(serializer._params, "auto_hang_up"):
-            serializer._params.auto_hang_up = False
-            logger.info("Disabled serializer auto_hang_up to allow call transfer/forwarding to succeed.")
+    transport_params_obj = getattr(transport, "_params", None)
+    if transport_params_obj and hasattr(transport_params_obj, "serializer"):
+        serializer = getattr(transport_params_obj, "serializer", None)
+        if serializer:
+            serializer_params = getattr(serializer, "_params", None)
+            if serializer_params and hasattr(serializer_params, "auto_hang_up"):
+                setattr(serializer_params, "auto_hang_up", False)
+                logger.info("Disabled serializer auto_hang_up to allow call transfer/forwarding to succeed.")
 
     await run_bot(transport, runner_args.handle_sigint, call_uuid, host, caller_number)
 

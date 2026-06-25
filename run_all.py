@@ -1,10 +1,11 @@
-import subprocess
-import time
-import sys
 import os
 import re
-from dotenv import load_dotenv
+import subprocess
+import sys
+import time
+
 import plivo
+from dotenv import load_dotenv
 
 # Load environment variables dynamically
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -86,16 +87,17 @@ def main():
             )
             
             # Read stdout line by line and print immediately
-            for line in iter(tunnel_process.stdout.readline, ""):
-                sys.stdout.write(line)
-                sys.stdout.flush()
-                if "your url is:" in line:
-                    match = re.search(r"https://[^\s]+", line)
-                    if match:
-                        url = match.group(0)
-                        if not url.endswith("/"):
-                            url += "/"
-                        update_plivo_url(url)
+            if tunnel_process.stdout:
+                for line in iter(tunnel_process.stdout.readline, ""):
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    if "your url is:" in line:
+                        match = re.search(r"https://[^\s]+", line)
+                        if match:
+                            url = match.group(0)
+                            if not url.endswith("/"):
+                                url += "/"
+                            update_plivo_url(url)
             
             tunnel_process.wait()
             print(f"localtunnel process exited with code {tunnel_process.returncode}", flush=True)
