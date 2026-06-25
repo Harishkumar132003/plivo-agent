@@ -139,3 +139,88 @@ def db_get_all_calls():
     except PyMongoError as e:
         print(f"Failed to retrieve calls from MongoDB: {e}")
         return []
+
+DEFAULT_WELCOME_MESSAGE = "Hello, thank you for calling Goodwind Technologies support. How can I help you today?"
+
+DEFAULT_SYSTEM_PROMPT = """You are a voice support agent for Goodwind Technologies handling inbound calls.
+
+RULES:
+- Phone call. Max 1-2 short sentences per response. No markdown, bullets, or emojis.
+- Speak at a brisk, natural phone-call pace. Never speak slowly or add long pauses.
+- Respond immediately after the caller finishes — do not hesitate or overthink.
+- Always reply in whatever language the customer speaks (English, Tamil, or Malayalam). Detect it automatically. Never ask them to choose.
+- Never fabricate order information. Only relay what check_order_status returns.
+- LANGUAGE FLOW:
+  * Automatic Switch: If you detect the customer speaking Tamil or Malayalam, call set_language immediately. Change language and converse in it. Do NOT re-mention or repeatedly talk about the language in subsequent turns.
+  * Requested Switch: If the customer explicitly requests a language change (e.g. "please speak in Tamil" or "change to Malayalam"), call set_language, inform them once in the target language that you have switched (e.g. "Sure, switching to Tamil" or "ശരി, മലയാളത്തിൽ സംസാരിക്കാം"), and then continue in that language.
+  * Malayalam vs Tamil: Clearly identify the difference between Malayalam and Tamil. They are distinct languages with different vocabularies and scripts. Never mix Tamil words/grammar/scripts into Malayalam, or Malayalam words/grammar/scripts into Tamil. Keep them strictly separate and accurate.
+
+FLOW:
+
+STEP 1 — GREET IMMEDIATELY: As soon as the call connects, YOU speak first. Greet the caller by saying exactly: "{welcome_message}". Never wait for the caller to speak first.
+
+STEP 2 — After customer speaks, classify IMMEDIATELY and act:
+  A. ORDER STATUS → ask for their 4-digit Order ID (once only), call check_order_status, relay result.
+  B. ANYTHING ELSE (refunds, cancellations, returns, complaints, sales, speak to human) → say "I'll transfer you to a support agent now, please hold on." in their language, then call forward_call.
+  C. UNCLEAR → one short clarifying question, then classify.
+
+STEP 3 — ORDER RESULT:
+  - Dispatched → say order is dispatched.
+  - Quoted → say status is Quoted.
+  - Error/not found → say unable to retrieve right now.
+  Ask if anything else needed.
+
+STEP 4 — CLOSE: Warm goodbye in their language, call end_conversation.
+
+ORDER ID: 4 digits only. Words like "six one eight zero" = 6180. Do NOT read it back. Call check_order_status immediately.
+
+FORWARD: Say "I'll transfer you to a support agent now, please hold on." first, then call forward_call immediately.
+
+STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forward these."""
+
+def db_get_settings():
+    """Retrieves the system settings document, initializing with defaults if empty."""
+    try:
+        db = get_db()
+        settings = db.settings.find_one({"key": "agent_settings"})
+        if not settings:
+            default_forward = os.getenv("FORWARD_TO_NUMBER", "+918610467370")
+            settings = {
+                "key": "agent_settings",
+                "welcome_message": DEFAULT_WELCOME_MESSAGE,
+                "system_prompt": DEFAULT_SYSTEM_PROMPT,
+                "forward_to_number": default_forward
+            }
+            db.settings.insert_one(settings)
+        # Convert _id to string for JSON serialization compatibility
+        if "_id" in settings:
+            settings["_id"] = str(settings["_id"])
+        return settings
+    except PyMongoError as e:
+        print(f"Failed to retrieve settings from MongoDB: {e}")
+        # Return default dict if DB fails
+        return {
+            "welcome_message": DEFAULT_WELCOME_MESSAGE,
+            "system_prompt": DEFAULT_SYSTEM_PROMPT,
+            "forward_to_number": os.getenv("FORWARD_TO_NUMBER", "+918610467370")
+        }
+
+def db_update_settings(welcome_message: str, system_prompt: str, forward_to_number: str):
+    """Updates the system settings in MongoDB."""
+    try:
+        db = get_db()
+        db.settings.update_one(
+            {"key": "agent_settings"},
+            {
+                "$set": {
+                    "welcome_message": welcome_message.strip(),
+                    "system_prompt": system_prompt.strip(),
+                    "forward_to_number": forward_to_number.strip()
+                }
+            },
+            upsert=True
+        )
+        return True
+    except PyMongoError as e:
+        print(f"Failed to update settings in MongoDB: {e}")
+        return False

@@ -50,6 +50,7 @@ from database import (
     db_set_duration,
     db_set_forwarded,
     db_update_order,
+    db_get_settings,
 )
 
 load_dotenv()
@@ -73,10 +74,14 @@ RULES:
 - Respond immediately after the caller finishes — do not hesitate or overthink.
 - Always reply in whatever language the customer speaks (English, Tamil, or Malayalam). Detect it automatically. Never ask them to choose.
 - Never fabricate order information. Only relay what check_order_status returns.
+- LANGUAGE FLOW:
+  * Automatic Switch: If you detect the customer speaking Tamil or Malayalam, call set_language immediately. Change language and converse in it. Do NOT re-mention or repeatedly talk about the language in subsequent turns.
+  * Requested Switch: If the customer explicitly requests a language change (e.g. "please speak in Tamil" or "change to Malayalam"), call set_language, inform them once in the target language that you have switched (e.g. "Sure, switching to Tamil" or "ശരി, മലയാളത്തിൽ സംസാരിക്കാം"), and then continue in that language.
+  * Malayalam vs Tamil: Clearly identify the difference between Malayalam and Tamil. They are distinct languages with different vocabularies and scripts. Never mix Tamil words/grammar/scripts into Malayalam, or Malayalam words/grammar/scripts into Tamil. Keep them strictly separate and accurate.
 
 FLOW:
 
-STEP 1 — GREET IMMEDIATELY: As soon as the call connects, YOU speak first. One warm sentence as Goodwind Technologies support asking how you can help. Never wait for the caller to speak first.
+STEP 1 — GREET IMMEDIATELY: As soon as the call connects, YOU speak first. Greet the caller by saying exactly: "{welcome_message}". Never wait for the caller to speak first.
 
 STEP 2 — After customer speaks, classify IMMEDIATELY and act:
   A. ORDER STATUS → ask for their 4-digit Order ID (once only), call check_order_status, relay result.
@@ -114,6 +119,12 @@ async def run_bot(
     state = {
         "language": "english"
     }
+
+    # Retrieve and apply configuration settings dynamically
+    settings = db_get_settings()
+    welcome_message = settings.get("welcome_message", "Hello, thank you for calling Goodwind Technologies support. How can I help you today?")
+    system_prompt_template = settings.get("system_prompt", SYSTEM_PROMPT)
+    resolved_system_prompt = system_prompt_template.replace("{welcome_message}", welcome_message)
 
     db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid or "")
     start_time = time.time()
@@ -181,8 +192,8 @@ async def run_bot(
             stt_lang, tts_lang = lang_map[lang_lower]
             state["language"] = lang_lower
 
-            # Update settings on the Gemini Live LLM service only for supported languages (en-US)
-            if llm and stt_lang == Language.EN_US:
+            # Update settings on the Gemini Live LLM service
+            if llm:
                 llm.set_language(stt_lang)
 
             # Restrict the LLM strictly to the chosen language
@@ -190,14 +201,23 @@ async def run_bot(
                 context.add_message({
                     "role": "system",
                     "content": (
-                        f"The user selected {language.upper()} ({tts_lang}). "
+                        f"The language is now set to {language.upper()} ({tts_lang}). "
                         f"From now on, you MUST converse ONLY in {language.upper()} using its script. "
                         "Do NOT respond in English, Tamil, Malayalam, or any other language "
-                        "except the one selected. Keep the rule absolute."
+                        "except the selected one. Keep this rule absolute. "
+                        "Do NOT say that you are switching or mention the language name in your response. "
+                        "Just speak in the selected language. "
+                        "If the user explicitly requested this switch, you can confirm it once in the target language. "
+                        "Otherwise, do not mention the language change at all."
                     )
                 })
 
             await params.result_callback(f"Language set to {language} successfully.")
+
+            # Reconnect the Gemini Live session to apply the language change immediately
+            if llm:
+                logger.info(f"Reconnecting Gemini session for language: {stt_lang}")
+                await llm._reconnect()
         else:
             await params.result_callback(f"Unsupported language: {language}.")
 
@@ -284,7 +304,7 @@ async def run_bot(
             model="models/gemini-2.5-flash-native-audio-latest",
             voice="Sulafat",  # Charon is more adaptive to accent instructions via system prompt
             language=Language.EN_US,  # en-IN is unsupported by native-audio model; accent via system prompt
-            system_instruction=SYSTEM_PROMPT,
+            system_instruction=resolved_system_prompt,
             vad=GeminiVADParams(
                 silence_duration_ms=500,
                 start_sensitivity=StartSensitivity.START_SENSITIVITY_HIGH,

@@ -59,6 +59,18 @@ def main():
     # 1. Kill any existing process on port 7860
     kill_port_owner(port)
     
+    # 1b. Check if React frontend build directory exists, build if missing
+    frontend_dir = os.path.join(script_dir, "frontend")
+    dist_dir = os.path.join(frontend_dir, "dist")
+    if not os.path.exists(dist_dir):
+        print("\nReact frontend build directory not found. Initiating build...", flush=True)
+        try:
+            subprocess.run("npm run build", cwd=frontend_dir, shell=True, check=True)
+            print("React frontend build completed successfully!\n", flush=True)
+        except Exception as e:
+            print(f"\n[WARNING] Failed to build React frontend: {e}", flush=True)
+            print("Make sure node and npm are installed, and run 'npm run build' in the frontend folder manually.\n", flush=True)
+
     # 2. Start the FastAPI server
     print("Starting FastAPI server...", flush=True)
     server_process = subprocess.Popen(

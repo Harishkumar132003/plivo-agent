@@ -21,7 +21,8 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import Response
 
@@ -30,7 +31,13 @@ load_dotenv()
 
 # Import bot at startup to pre-warm VAD and libraries before any call comes in
 from bot import bot
-from database import db_get_all_calls, db_set_forwarded_transcript_by_uuid, init_db
+from database import (
+    db_get_all_calls,
+    db_set_forwarded_transcript_by_uuid,
+    init_db,
+    db_get_settings,
+    db_update_settings,
+)
 
 
 @asynccontextmanager
@@ -51,6 +58,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve built React frontend assets if compiled
+dist_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+assets_path = os.path.join(dist_path, "assets")
+
+if os.path.exists(assets_path):
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -307,8 +321,10 @@ async def forward_call_webhook(
     Returns XML to dial the support agent number.
     The target number is read from FORWARD_TO_NUMBER .
     """
-    # Resolve forward-to number: query param > env var > hardcoded fallback
-    forward_number = ForwardTo or os.getenv("FORWARD_TO_NUMBER")
+    # Resolve forward-to number: query param > database settings > env var > hardcoded fallback
+    settings = db_get_settings()
+    db_forward_number = settings.get("forward_to_number")
+    forward_number = ForwardTo or db_forward_number or os.getenv("FORWARD_TO_NUMBER")
     
     # Construct transcription callback URL
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
@@ -443,15 +459,81 @@ async def get_calls_api():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SettingsUpdateRequest(BaseModel):
+    welcome_message: str
+    system_prompt: str
+    forward_to_number: str
+
+
+@app.get("/api/settings")
+async def get_settings_api():
+    """Retrieve system configuration settings."""
+    try:
+        settings = db_get_settings()
+        return {
+            "welcome_message": settings.get("welcome_message", ""),
+            "system_prompt": settings.get("system_prompt", ""),
+            "forward_to_number": settings.get("forward_to_number", "")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/settings")
+async def update_settings_api(body: SettingsUpdateRequest):
+    """Update system configuration settings."""
+    try:
+        success = db_update_settings(
+            welcome_message=body.welcome_message,
+            system_prompt=body.system_prompt,
+            forward_to_number=body.forward_to_number
+        )
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update settings in database")
+        return {"status": "success", "message": "Settings updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard():
-    """Return the beautiful Call History dashboard."""
+    """Return the beautiful React Call History dashboard."""
+    react_html_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "frontend", "dist", "index.html"
+    )
+    if os.path.exists(react_html_path):
+        with open(react_html_path, encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+
+    # Fallback to legacy dashboard.html if React build is not found
     html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
     if not os.path.exists(html_path):
-        raise HTTPException(status_code=404, detail="Dashboard template not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Dashboard template not found. Please build the frontend project.",
+        )
     with open(html_path, encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
+
+
+@app.get("/favicon.svg")
+async def get_favicon():
+    """Serve the favicon.svg from the built frontend or public fallback."""
+    dist_favicon = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "frontend", "dist", "favicon.svg"
+    )
+    if os.path.exists(dist_favicon):
+        return FileResponse(dist_favicon)
+
+    public_favicon = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "frontend", "public", "favicon.svg"
+    )
+    if os.path.exists(public_favicon):
+        return FileResponse(public_favicon)
+
+    raise HTTPException(status_code=404, detail="Favicon not found")
 
 
 # ─── Entry Point ───────────────────────────────────────────────────────────────
