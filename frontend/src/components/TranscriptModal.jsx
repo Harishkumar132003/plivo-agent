@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, MessageSquare, Bot, User, PhoneCall } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X, MessageSquare, Bot, User, PhoneCall, Phone } from "lucide-react";
 
 export const TranscriptModal = ({
   isOpen,
@@ -10,27 +11,36 @@ export const TranscriptModal = ({
   const [modalTab, setModalTab] = useState("standard");
   const modalBodyRef = useRef(null);
 
-  // Sync state with open triggers
+  // Sync tab when mode or call changes
   useEffect(() => {
-    if (call) {
-      setModalTab(mode);
-    }
+    if (call) setModalTab(mode);
   }, [call, mode]);
 
-  // Auto-scroll to bottom on opening or tab changes
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [isOpen]);
+
+  // Auto-scroll to bottom on open or tab change
   useEffect(() => {
     if (isOpen && modalBodyRef.current) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (modalBodyRef.current) {
           modalBodyRef.current.scrollTop = modalBodyRef.current.scrollHeight;
         }
-      }, 100);
+      }, 120);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, modalTab, call]);
 
   if (!isOpen || !call) return null;
 
-  // Safe string converter
+  // ── Helpers ──────────────────────────────────────────────────────────────
   const safeStr = (val) => {
     if (val === null || val === undefined) return "";
     if (typeof val === "string") return val;
@@ -39,25 +49,21 @@ export const TranscriptModal = ({
     return String(val);
   };
 
-  // Helper to parse forwarded transcripts into structured speaker turns
   const parseForwardedTranscript = (rawVal) => {
     const text = safeStr(rawVal);
     if (!text.trim()) return [];
 
     const lines = text.split("\n");
     const turns = [];
-
     let currentSpeaker = null;
     let currentText = "";
 
-    // Matches speaker tags: "Speaker 1:", "Speaker 2:", etc.
     const speakerRegex =
       /^\s*(Speaker\s+\d+|Channel\s+\d+|User|Agent|Customer|Speaker)\s*:\s*(.*)$/i;
 
     for (let line of lines) {
       line = line.trim();
       if (!line) continue;
-
       const match = line.match(speakerRegex);
       if (match) {
         if (currentSpeaker && currentText) {
@@ -79,7 +85,6 @@ export const TranscriptModal = ({
       turns.push({ speaker: currentSpeaker, text: currentText.trim() });
     }
 
-    // Fallback if no speakers were identified
     if (turns.length === 0 && text.trim()) {
       const paragraphs = text.split(/\n\n+/);
       paragraphs.forEach((p, index) => {
@@ -95,13 +100,14 @@ export const TranscriptModal = ({
     return turns;
   };
 
+  // ── Content Renderer ─────────────────────────────────────────────────────
   const renderContent = () => {
     if (modalTab === "standard") {
       const transcript = call.transcript || [];
       if (transcript.length === 0) {
         return (
           <div className="empty-state">
-            <MessageSquare size={48} />
+            <MessageSquare size={40} />
             <p>No conversation logs recorded for this call.</p>
           </div>
         );
@@ -109,13 +115,15 @@ export const TranscriptModal = ({
 
       return transcript.map((msg, index) => {
         const isUser = msg.role === "user";
-        const containerClass = isUser ? "user" : "agent";
-        const bubbleClass = isUser ? "user" : "agent";
         const label = isUser ? "User" : "AI Agent";
         const timestampStr = msg.timestamp ? ` • ${msg.timestamp}` : "";
 
         return (
-          <div key={index} className={`chat-bubble-container ${containerClass}`} style={{ animationDelay: `${index * 0.05}s` }}>
+          <div
+            key={index}
+            className={`chat-bubble-container ${isUser ? "user" : "agent"}`}
+            style={{ animationDelay: `${index * 0.04}s` }}
+          >
             <div className="bubble-meta">
               <span className="bubble-label" style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 {isUser ? <User size={11} /> : <Bot size={11} />}
@@ -123,93 +131,84 @@ export const TranscriptModal = ({
               </span>
               <span className="bubble-time">{timestampStr}</span>
             </div>
-            <div className={`chat-bubble ${bubbleClass}`}>
-              <div className="bubble-content">{msg.text}</div>
-            </div>
-          </div>
-        );
-      });
-    } else {
-      if (!call.call_forwarded) {
-        return (
-          <div className="empty-state">
-            <MessageSquare size={48} />
-            <p>No forwarded conversation transcript recorded.</p>
-          </div>
-        );
-      }
-
-      if (!call.forwarded_transcript) {
-        return (
-          <div className="empty-state">
-            <PhoneCall className="animate-spin" size={48} style={{ color: "var(--warning-text)" }} />
-            <p style={{ marginTop: "1rem" }}>Waiting for forwarded call recording transcription...</p>
-          </div>
-        );
-      }
-
-      const turns = parseForwardedTranscript(call.forwarded_transcript);
-      return turns.map((turn, index) => {
-        const isUser =
-          turn.speaker.toLowerCase().includes("speaker 1") ||
-          turn.speaker.toLowerCase().includes("channel 0") ||
-          turn.speaker.toLowerCase().includes("customer") ||
-          turn.speaker.toLowerCase().includes("user");
-
-        const containerClass = isUser ? "user" : "agent";
-        const bubbleClass = isUser ? "user" : "forwarded-agent";
-        const label = isUser ? "Customer" : "Support Agent";
-
-        return (
-          <div
-            key={index}
-            className={`chat-bubble-container ${containerClass} ${
-              !isUser ? "forwarded-agent-meta" : ""
-            }`}
-            style={{ animationDelay: `${index * 0.05}s` }}
-          >
-            <div className="bubble-meta">
-              <span className="bubble-label" style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                {isUser ? <User size={11} /> : <Phone size={11} />}
-                {label}
-              </span>
-              <span className="bubble-speaker">({turn.speaker})</span>
-            </div>
-            <div className={`chat-bubble ${bubbleClass}`}>
-              <div className="bubble-content" style={{ whiteSpace: "pre-wrap" }}>
-                {turn.text}
-              </div>
+            <div className={`chat-bubble ${isUser ? "user" : "agent"}`}>
+              {msg.text}
             </div>
           </div>
         );
       });
     }
+
+    // ── Forwarded tab ───────────────────────────────────────────────────
+    if (!call.call_forwarded) {
+      return (
+        <div className="empty-state">
+          <MessageSquare size={40} />
+          <p>No forwarded conversation transcript recorded.</p>
+        </div>
+      );
+    }
+
+    if (!call.forwarded_transcript) {
+      return (
+        <div className="empty-state">
+          <PhoneCall size={40} style={{ color: "var(--warning-text)" }} />
+          <p style={{ marginTop: "0.75rem" }}>
+            Waiting for forwarded call recording transcription…
+          </p>
+        </div>
+      );
+    }
+
+    const turns = parseForwardedTranscript(call.forwarded_transcript);
+    return turns.map((turn, index) => {
+      const isUser =
+        turn.speaker.toLowerCase().includes("speaker 1") ||
+        turn.speaker.toLowerCase().includes("channel 0") ||
+        turn.speaker.toLowerCase().includes("customer") ||
+        turn.speaker.toLowerCase().includes("user");
+
+      return (
+        <div
+          key={index}
+          className={`chat-bubble-container ${isUser ? "user" : "agent"}`}
+          style={{ animationDelay: `${index * 0.04}s` }}
+        >
+          <div className="bubble-meta">
+            <span className="bubble-label" style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              {isUser ? <User size={11} /> : <Phone size={11} />}
+              {isUser ? "Customer" : "Support Agent"}
+            </span>
+            <span className="bubble-time">({turn.speaker})</span>
+          </div>
+          <div className={`chat-bubble ${isUser ? "user" : "forwarded-agent"}`}>
+            <div style={{ whiteSpace: "pre-wrap" }}>{turn.text}</div>
+          </div>
+        </div>
+      );
+    });
   };
 
+  // ── Overlay click to close ────────────────────────────────────────────
   const handleOverlayClick = (e) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
+    if (e.target === e.currentTarget) onClose();
   };
 
-  const title = `Call: ${call.phone_number || "Unknown"}`;
-
-  return (
-    <div
-      className="modal-overlay active"
-      onClick={handleOverlayClick}
-      style={{ display: "flex" }}
-    >
-      <div className="modal-content">
+  // ── Render via portal so it always sits on top of everything ─────────
+  return createPortal(
+    <div className="modal-overlay active" onClick={handleOverlayClick}>
+      <div className="modal-content" role="dialog" aria-modal="true">
         {/* Header */}
         <div className="modal-header">
-          <span className="modal-title">{title}</span>
-          <button className="modal-close-btn" onClick={onClose}>
-            <X size={18} />
+          <span className="modal-title">
+            Call: {call.phone_number || "Unknown"}
+          </span>
+          <button className="modal-close-btn" onClick={onClose} aria-label="Close">
+            <X size={16} />
           </button>
         </div>
 
-        {/* Dynamic Transcripts Switching Tabs (only when forwarded) */}
+        {/* Tabs — only shown for forwarded calls */}
         {call.call_forwarded && (
           <div className="modal-tabs">
             <button
@@ -227,23 +226,19 @@ export const TranscriptModal = ({
           </div>
         )}
 
-        {/* Body Content */}
+        {/* Body */}
         <div className="modal-body" ref={modalBodyRef}>
           {renderContent()}
         </div>
 
         {/* Footer */}
         <div className="modal-footer">
-          <button
-            className="btn btn-secondary"
-            onClick={onClose}
-            style={{ minWidth: "80px" }}
-          >
+          <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
-

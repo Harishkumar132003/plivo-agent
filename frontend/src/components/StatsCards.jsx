@@ -1,19 +1,7 @@
-import React, { useState } from "react";
-import {
-  PhoneCall,
-  Phone,
-  Play,
-  Loader,
-  Check,
-  AlertCircle,
-} from "lucide-react";
+import React from "react";
+import { Phone, ShoppingBag, Zap } from "lucide-react";
 
-export const StatsCards = ({
-  calls,
-  hotlineNumber = "+91 80 3133 9945",
-  onDial,
-  callbackNumber,
-}) => {
+export const StatsCards = ({ calls }) => {
   const totalCalls = calls.length;
   const ordersChecked = calls.filter((call) => call.order_number).length;
   const totalCost = calls.reduce(
@@ -21,99 +9,57 @@ export const StatsCards = ({
     0,
   );
 
-  // Dialer State
-  const [customerNumber, setCustomerNumber] = useState("");
-  const [dialStatus, setDialStatus] = useState(null); // 'calling', 'success', 'error'
-  const [statusMsg, setStatusMsg] = useState("");
-
-  // Populate dialer when callback clicked
-  React.useEffect(() => {
-    if (callbackNumber) {
-      setCustomerNumber(callbackNumber);
-    }
-  }, [callbackNumber]);
-
-  const handleDial = async (e) => {
-    e.preventDefault();
-    const formattedNum = customerNumber.trim();
-    if (!formattedNum) return;
-
-    // Optional basic check for E.164 (must start with +)
-    if (!formattedNum.startsWith("+")) {
-      setDialStatus("error");
-      setStatusMsg("Number must start with '+' (e.g. +91...)");
-      setTimeout(() => {
-        setDialStatus(null);
-        setStatusMsg("");
-      }, 4000);
-      return;
-    }
-
-    setDialStatus("calling");
-    setStatusMsg("Dialing Plivo Hotline...");
-
-    try {
-      const res = await onDial(formattedNum);
-      if (res && res.success) {
-        setDialStatus("success");
-        setStatusMsg(res.message || "Outbound call initiated!");
-        setCustomerNumber("");
-      } else {
-        setDialStatus("error");
-        setStatusMsg(res?.message || "Outbound call failed.");
-      }
-    } catch (err) {
-      setDialStatus("error");
-      setStatusMsg(err.message || "Request failed.");
-    }
-
-    setTimeout(() => {
-      setDialStatus(null);
-      setStatusMsg("");
-    }, 5000);
-  };
+  const stats = [
+    {
+      icon: Phone,
+      label: "Total Calls",
+      value: totalCalls,
+      desc: "All recorded inbound calls",
+      iconBg: "rgba(79,70,229,0.1)",
+      iconColor: "var(--accent-primary)",
+      accentBar: "var(--accent-primary)",
+    },
+    {
+      icon: ShoppingBag,
+      label: "Orders Checked",
+      value: ordersChecked,
+      desc: "Calls that queried Zoho order statuses",
+      iconBg: "rgba(16,185,129,0.1)",
+      iconColor: "var(--success)",
+      accentBar: "var(--success)",
+    },
+    {
+      icon: Zap,
+      label: "Infrastructure Cost",
+      value: `$${totalCost.toFixed(2)}`,
+      desc: "Accumulated Plivo + Gemini API usage",
+      iconBg: "rgba(245,158,11,0.1)",
+      iconColor: "#d97706",
+      accentBar: "#f59e0b",
+    },
+  ];
 
   return (
     <div className="stats-grid">
-      <div className="stat-card">
-        <span className="stat-label">Total Calls</span>
-        <span className="stat-value">{totalCalls}</span>
-        <span className="stat-desc">All recorded inbound/outbound calls</span>
-      </div>
-
-      <div className="stat-card">
-        <span className="stat-label">Orders Checked</span>
-        <span className="stat-value">{ordersChecked}</span>
-        <span className="stat-desc">
-          Calls checking Zoho API order statuses
-        </span>
-      </div>
-
-      <div className="stat-card">
-        <span className="stat-label">Total Infrastructure Cost</span>
-        <span className="stat-value">${totalCost.toFixed(2)}</span>
-        <span className="stat-desc">Accumulated Plivo + Gemini API usage</span>
-      </div>
-
-      <div className="stat-card" style={{ paddingBottom: "1.25rem" }}>
-        <span className="stat-label">Active Support Line</span>
-        <span
-          className="stat-value"
-          style={{
-            fontSize: "1.5rem",
-            marginTop: "0.5rem",
-            fontFamily: "var(--font-inter)",
-            fontWeight: 600,
-            color: "var(--accent-primary)",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-          }}
-        >
-          <PhoneCall size={20} strokeWidth={2.5} />
-          {hotlineNumber}
-        </span>
-      </div>
+      {stats.map(
+        ({ icon: Icon, label, value, desc, iconBg, iconColor, accentBar }) => (
+          <div className="stat-card" key={label}>
+            <div className="stat-card-inner">
+              <div
+                className="stat-icon-wrap"
+                style={{ background: iconBg, color: iconColor }}
+              >
+                <Icon size={18} strokeWidth={2.2} />
+              </div>
+              <div className="stat-content">
+                <span className="stat-label">{label}</span>
+                <span className="stat-value">{value}</span>
+                <span className="stat-desc">{desc}</span>
+              </div>
+            </div>
+          </div>
+        ),
+      )}
     </div>
   );
 };

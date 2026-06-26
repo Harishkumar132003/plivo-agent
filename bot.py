@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2025, Daily
+# Copyright (c) 2026, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -265,7 +265,7 @@ async def run_bot(
         await params.result_callback("Call forwarding initiated.")
 
     context = LLMContext(
-        messages=[{"role": "user", "content": CONNECT_GREETING_TRIGGER}],
+        messages=[],
         tools=[check_order_status, set_language, end_conversation, forward_call],
     )
 
@@ -327,17 +327,8 @@ async def run_bot(
     async def on_client_connected(transport, client):  # noqa: ANN001
         """Kick off the conversation with an AI greeting when the call connects."""
         logger.info("Client connected — triggering immediate greeting")
-
-        # Push frames IMMEDIATELY (no delay). The Gemini session takes ~500ms to open.
-        # If these frames arrive before the session opens, GeminiLive sets
-        # _run_llm_when_session_ready=True, so it fires _create_initial_response
-        # the moment the session is ready — guaranteeing the agent speaks first.
-        # LLMRunFrame is a fallback in case the session was already open.
-        logger.info("Pushing LLMMessagesUpdateFrame + LLMRunFrame immediately to trigger greeting")
-        await worker.queue_frames([
-            LLMMessagesUpdateFrame(messages=context.messages),
-            LLMRunFrame(),
-        ])
+        context.add_message({"role": "user", "content": CONNECT_GREETING_TRIGGER})
+        await worker.queue_frames([LLMRunFrame()])
         logger.info("Greeting frames queued — agent should speak now")
 
     @transport.event_handler("on_client_disconnected")
@@ -365,14 +356,38 @@ async def bot(
 ) -> None:
     """Main bot entry point compatible with Pipecat Cloud."""
 
-    transport_params = {
-        "plivo": lambda: FastAPIWebsocketParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-        ),
-    }
+    import json
+    from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport
+    from pipecat.serializers.plivo import PlivoFrameSerializer
 
-    transport = await create_transport(runner_args, transport_params)
+    websocket = runner_args.websocket
+
+    # Receive the first message (handshake/start message) from Plivo WebSocket
+    try:
+        first_msg_raw = await websocket.receive_text()
+        logger.info(f"Received Plivo raw handshake message: {first_msg_raw}")
+        first_msg = json.loads(first_msg_raw)
+        start_data = first_msg.get("start", {})
+        stream_id = start_data.get("streamId")
+        call_id = start_data.get("callId")
+        logger.info(f"Parsed Plivo start handshake: stream_id={stream_id}, call_id={call_id}")
+    except Exception as e:
+        logger.error(f"Failed to receive/parse Plivo handshake: {e}")
+        raise e
+
+    params = FastAPIWebsocketParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        add_wav_header=False,
+        serializer=PlivoFrameSerializer(
+            stream_id=stream_id,
+            call_id=call_id,
+            auth_id=os.getenv("PLIVO_AUTH_ID", ""),
+            auth_token=os.getenv("PLIVO_AUTH_TOKEN", ""),
+        )
+    )
+
+    transport = FastAPIWebsocketTransport(websocket=websocket, params=params)
 
     # Disable automatic call hangup on pipeline cancel/end. This prevents Plivo from
     # immediately terminating the call when the WebSocket finishes, allowing our

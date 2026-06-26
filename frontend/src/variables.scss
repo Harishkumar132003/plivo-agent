@@ -1,39 +1,41 @@
-// Light Theme Colors
-$bg-light: #f8fafc;
-$card-bg-light: rgba(255, 255, 255, 0.8);
-$border-light: rgba(226, 232, 240, 0.8);
-$text-primary-light: #0f172a;
-$text-secondary-light: #475569;
-$accent-primary-light: #2563eb;
-$accent-secondary-light: #1d4ed8;
-$accent-glow-light: rgba(37, 99, 235, 0.08);
+// ─── Color Palette (Light Only) ───────────────────────────────────────────────
+$bg-page:           #f0f4f8;
+$bg-sidebar:        #ffffff;
+$card-bg:           #ffffff;
+$border-color:      #e2e8f0;
+$border-hover:      #cbd5e1;
 
-// Dark Theme Colors (Deep vibrant dark spaces)
-$bg-dark: #0b0f19;
-$card-bg-dark: rgba(17, 24, 39, 0.75);
-$border-dark: rgba(37, 99, 235, 0.15);
-$text-primary-dark: #f8fafc;
-$text-secondary-dark: #94a3b8;
-$accent-primary-dark: #3b82f6;
-$accent-secondary-dark: #60a5fa;
-$accent-glow-dark: rgba(59, 130, 246, 0.15);
+// Text
+$text-primary:      #0f172a;
+$text-secondary:    #64748b;
+$text-muted:        #94a3b8;
 
-// Common variables
-$success: #10b981;
-$success-glow: rgba(16, 185, 129, 0.08);
-$warning-bg: #fffbeb;
-$warning-border: #fde68a;
-$warning-text: #b45309;
-$danger-bg: #fef2f2;
-$danger-border: #fecaca;
-$danger-text: #b91c1c;
+// Brand accent — indigo/violet
+$accent-primary:    #4f46e5;
+$accent-secondary:  #6366f1;
+$accent-light:      #eef2ff;
+$accent-glow:       rgba(79, 70, 229, 0.12);
 
-// Typography variables
-$font-outfit: "Outfit", sans-serif;
-$font-inter: "Inter", sans-serif;
+// Semantic colors
+$success:           #10b981;
+$success-bg:        #ecfdf5;
+$success-border:    #a7f3d0;
 
-// Elevation shadows
-$shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-$shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-$shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+$warning-bg:        #fffbeb;
+$warning-border:    #fde68a;
+$warning-text:      #b45309;
 
+$danger-bg:         #fef2f2;
+$danger-border:     #fecaca;
+$danger-text:       #b91c1c;
+
+// Typography
+$font-outfit:  "Outfit", sans-serif;
+$font-inter:   "Inter", sans-serif;
+
+// Elevation
+$shadow-xs:  0 1px 2px rgba(15, 23, 42, 0.05);
+$shadow-sm:  0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+$shadow-md:  0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04);
+$shadow-lg:  0 20px 40px -8px rgba(15, 23, 42, 0.12), 0 8px 16px -4px rgba(15, 23, 42, 0.06);
+$shadow-xl:  0 32px 64px -12px rgba(15, 23, 42, 0.18);

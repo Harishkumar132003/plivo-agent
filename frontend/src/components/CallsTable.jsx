@@ -131,11 +131,9 @@ export const CallsTable = ({
   return (
     <div className="table-card">
       <div className="table-header" style={{ flexWrap: "wrap", gap: "1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span>Recent Conversations</span>
-          <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: "normal" }}>
-            ({totalItems} matched)
-          </span>
+        <div className="table-title">
+          Recent Conversations
+          <span className="table-subtitle">({totalItems} matched)</span>
         </div>
 
         {/* Filter Controls Row */}
@@ -227,7 +225,7 @@ export const CallsTable = ({
                     <td className="time-cell">{formatCallTime(call.time_of_call)}</td>
                     <td>
                       {call.order_number ? (
-                        <span className="badge badge-cyan">{call.order_number}</span>
+                        <span className="badge badge-indigo">{call.order_number}</span>
                       ) : (
                         <span className="badge badge-gray">—</span>
                       )}

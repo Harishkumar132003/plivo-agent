@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Save, AlertCircle } from "lucide-react";
+import { Save, Pencil, X, RotateCcw, Lock, Unlock } from "lucide-react";
 
-export const SettingsForm = ({
-  initialSettings,
-  onSave,
-}) => {
+export const SettingsForm = ({ initialSettings, onSave, onToast }) => {
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [forwardToNumber, setForwardToNumber] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
-  // Alert State
-  const [alert, setAlert] = useState(null);
+  // Snapshot for cancel/discard
+  const [snapshot, setSnapshot] = useState(null);
 
   const defaultSettings = {
     welcome_message:
@@ -54,7 +52,6 @@ STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forw
     forward_to_number: "+918610467370",
   };
 
-  // Populate local fields when initialSettings are loaded
   useEffect(() => {
     if (initialSettings) {
       setWelcomeMessage(initialSettings.welcome_message || "");
@@ -63,28 +60,38 @@ STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forw
     }
   }, [initialSettings]);
 
+  const handleEdit = () => {
+    setSnapshot({ welcomeMessage, systemPrompt, forwardToNumber });
+    setIsEditing(true);
+  };
+
+  const handleCancel = () => {
+    if (snapshot) {
+      setWelcomeMessage(snapshot.welcomeMessage);
+      setSystemPrompt(snapshot.systemPrompt);
+      setForwardToNumber(snapshot.forwardToNumber);
+    }
+    setIsEditing(false);
+    setSnapshot(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setAlert(null);
 
-    // Validate prompt placeholder
     if (!systemPrompt.includes("{welcome_message}")) {
-      setAlert({
-        message:
-          "Validation Warning: The system prompt must contain the '{welcome_message}' placeholder so the greeting can be template-injected dynamically.",
-        type: "error",
-      });
+      onToast?.(
+        "System prompt must contain the '{welcome_message}' placeholder.",
+        "error",
+      );
       return;
     }
 
-    // Validate phone number format (E.164)
     const e164Regex = /^\+[1-9]\d{1,14}$/;
     if (!e164Regex.test(forwardToNumber)) {
-      setAlert({
-        message:
-          "Validation Warning: Please enter a valid phone number in E.164 format (e.g. +918610467370).",
-        type: "error",
-      });
+      onToast?.(
+        "Enter a valid phone number in E.164 format (e.g. +918610467370).",
+        "error",
+      );
       return;
     }
 
@@ -97,145 +104,188 @@ STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forw
     setLoading(false);
 
     if (success) {
-      setAlert({
-        message: "Configuration settings updated successfully and saved in DB!",
-        type: "success",
-      });
+      onToast?.("Agent configuration updated successfully!", "success");
+      setIsEditing(false);
+      setSnapshot(null);
     } else {
-      setAlert({
-        message: "Failed to update configuration settings in the database.",
-        type: "error",
-      });
+      onToast?.("Failed to update configuration. Please try again.", "error");
     }
   };
 
   const handleReset = () => {
-    if (
-      window.confirm(
-        "Are you sure you want to reset settings to default values? Note: You will still need to click 'Save Configuration' to apply changes to the database."
-      )
-    ) {
-      setWelcomeMessage(defaultSettings.welcome_message);
-      setSystemPrompt(defaultSettings.system_prompt);
-      setForwardToNumber(defaultSettings.forward_to_number);
-      setAlert({
-        message: "Form fields reset to default values. Click 'Save Configuration' to submit.",
-        type: "success",
-      });
-    }
+    setWelcomeMessage(defaultSettings.welcome_message);
+    setSystemPrompt(defaultSettings.system_prompt);
+    setForwardToNumber(defaultSettings.forward_to_number);
+    onToast?.(
+      "Fields reset to defaults. Click 'Save Changes' to apply.",
+      "success",
+    );
   };
 
   return (
-    <div className="settings-card">
-      <h2
-        style={{
-          fontFamily: "var(--font-outfit)",
-          fontWeight: 600,
-          fontSize: "1.5rem",
-          color: "var(--text-primary)",
-          borderBottom: "1px solid var(--border-color)",
-          paddingBottom: "0.75rem",
-        }}
-      >
-        Agent Configuration
-      </h2>
+    <div className="settings-page">
+      {/* ── Header Row ── */}
+      <div className="settings-header-row">
+        <div className="settings-title-group">
+          <h2 className="settings-title">Agent Configuration</h2>
+          <p className="settings-subtitle">
+            Manage your AI voice agent's greeting, instructions, and call
+            routing.
+          </p>
+        </div>
 
-      {alert && (
-        <div className={`alert-banner alert-${alert.type}`}>
-          <AlertCircle size={16} />
-          <span>{alert.message}</span>
+        <div className="settings-header-actions">
+          {!isEditing ? (
+            <button
+              type="button"
+              className="btn btn-edit-config"
+              onClick={handleEdit}
+            >
+              <Pencil size={14} strokeWidth={2.5} />
+              Edit Configuration
+            </button>
+          ) : (
+            <div className="settings-edit-pill">
+              <Unlock size={12} strokeWidth={2.5} />
+              Editing
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Status Banner ── */}
+      {!isEditing && (
+        <div className="settings-locked-notice">
+          <Lock size={13} strokeWidth={2.5} />
+          <span>
+            Fields are locked. Click <strong>Edit Configuration</strong> to make
+            changes.
+          </span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-        <div className="form-group">
-          <label className="form-label" htmlFor="welcome-message-input">
-            Welcome Message
-          </label>
-          <span className="form-desc">
-            The greeting spoken by the voice agent immediately upon call connection.
-          </span>
+      {/* ── Form ── */}
+      <form onSubmit={handleSubmit} className="settings-form">
+        {/* Welcome Message */}
+        <div className="settings-field-card">
+          <div className="settings-field-header">
+            <div>
+              <label
+                className="settings-field-label"
+                htmlFor="welcome-message-input"
+              >
+                Welcome Message
+              </label>
+              <p className="settings-field-desc">
+                The greeting spoken by the voice agent immediately upon call
+                connection.
+              </p>
+            </div>
+          </div>
           <input
             type="text"
             id="welcome-message-input"
-            className="form-control"
-            placeholder="e.g. Hello, thank you for calling Goodwind Technologies. How can I help you?"
+            className={`form-control settings-input ${!isEditing ? "field-locked" : ""}`}
+            placeholder="e.g. Hello, thank you for calling. How can I help you?"
             value={welcomeMessage}
             onChange={(e) => setWelcomeMessage(e.target.value)}
+            disabled={!isEditing}
             required
           />
         </div>
 
-        <div className="form-group">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label className="form-label" htmlFor="system-prompt-input">
-              Instructions Prompt (System Instructions)
-            </label>
-            <span className="placeholder-hint">Must contain the {"{welcome_message}"} placeholder</span>
+        {/* System Prompt */}
+        <div className="settings-field-card">
+          <div className="settings-field-header">
+            <div>
+              <label
+                className="settings-field-label"
+                htmlFor="system-prompt-input"
+              >
+                Instructions Prompt
+                <span className="settings-field-tag">System Instructions</span>
+              </label>
+              <p className="settings-field-desc">
+                Defines rules, language behavior, and step-by-step logic the
+                agent follows during the call.{" "}
+                <span className="placeholder-hint">
+                  Must include &#123;welcome_message&#125;
+                </span>
+              </p>
+            </div>
           </div>
-          <span className="form-desc">
-            Define the rules, language behavior, and step-by-step logic the agent follows during the call.
-          </span>
           <textarea
             id="system-prompt-input"
-            className="form-control"
-            style={{
-              minHeight: "350px",
-              fontFamily: "monospace",
-              fontSize: "0.85rem",
-              lineHeight: 1.5,
-              resize: "vertical",
-            }}
+            className={`form-control settings-textarea ${!isEditing ? "field-locked" : ""}`}
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
+            disabled={!isEditing}
             required
           />
         </div>
 
-        <div className="form-group">
-          <label className="form-label" htmlFor="forward-number-input">
-            Call Forwarding Number
-          </label>
-          <span className="form-desc">
-            The destination phone number (E.164 format, e.g., +918610467370) used when transferring calls to a human agent.
-          </span>
+        {/* Call Forwarding Number */}
+        <div className="settings-field-card">
+          <div className="settings-field-header">
+            <div>
+              <label
+                className="settings-field-label"
+                htmlFor="forward-number-input"
+              >
+                Call Forwarding Number
+              </label>
+              <p className="settings-field-desc">
+                Destination number in E.164 format (e.g., +918610467370) for
+                human agent transfers.
+              </p>
+            </div>
+          </div>
           <input
             type="text"
             id="forward-number-input"
-            className="form-control"
+            className={`form-control settings-input ${!isEditing ? "field-locked" : ""}`}
             placeholder="+918610467370"
             value={forwardToNumber}
             onChange={(e) => setForwardToNumber(e.target.value)}
+            disabled={!isEditing}
             required
           />
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "1rem",
-            marginTop: "1rem",
-            borderTop: "1px solid var(--border-color)",
-            paddingTop: "1.5rem",
-          }}
-        >
-          <button
-            type="button"
-            className="btn btn-outline"
-            style={{
-              borderColor: "var(--text-secondary)",
-              color: "var(--text-secondary)",
-            }}
-            onClick={handleReset}
-          >
-            Reset to Defaults
-          </button>
-          <button type="submit" className="btn" disabled={loading}>
-            <Save size={14} strokeWidth={2.5} />
-            {loading ? "Saving..." : "Save Configuration"}
-          </button>
-        </div>
+        {/* ── Action Row (only in edit mode) ── */}
+        {isEditing && (
+          <div className="settings-action-row animate-fade-in">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleReset}
+              disabled={loading}
+            >
+              <RotateCcw size={14} strokeWidth={2.5} />
+              Reset to Defaults
+            </button>
+
+            <div className="settings-action-right">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleCancel}
+                disabled={loading}
+              >
+                <X size={14} strokeWidth={2.5} />
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+              >
+                <Save size={14} strokeWidth={2.5} />
+                {loading ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   );
