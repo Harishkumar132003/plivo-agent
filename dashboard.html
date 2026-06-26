@@ -1,0 +1,1684 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Goodwind Technologies — AI Call Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --border-color: #e2e8f0;
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --accent-primary: #2563eb;
+        --accent-secondary: #1d4ed8;
+        --accent-glow: rgba(37, 99, 235, 0.08);
+        --success: #10b981;
+        --success-glow: rgba(16, 185, 129, 0.08);
+        --font-outfit: "Outfit", sans-serif;
+        --font-inter: "Inter", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-inter);
+        height: 100vh;
+        padding: 2rem;
+        line-height: 1.5;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2.5rem;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 1.5rem;
+      }
+
+      .brand-section h1 {
+        font-family: var(--font-outfit);
+        font-weight: 700;
+        font-size: 2.25rem;
+        color: var(--text-primary);
+        letter-spacing: -0.02em;
+      }
+
+      .brand-section p {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        margin-top: 0.25rem;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .btn {
+        background-color: var(--accent-primary);
+        color: #ffffff;
+        border: 1px solid var(--accent-secondary);
+        padding: 0.625rem 1.25rem;
+        border-radius: 6px;
+        font-family: var(--font-inter);
+        font-weight: 500;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .btn:hover {
+        background-color: var(--accent-secondary);
+      }
+
+      .btn-outline {
+        background-color: transparent;
+        color: var(--accent-primary);
+        border: 1px solid var(--accent-primary);
+      }
+
+      .btn-outline:hover {
+        background-color: rgba(37, 99, 235, 0.04);
+      }
+
+      .btn svg {
+        transition: transform 0.6s ease;
+      }
+
+      .btn.refreshing svg {
+        transform: rotate(360deg);
+      }
+
+      .toggle-container {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--card-bg);
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #cbd5e1;
+        transition: 0.4s;
+        border-radius: 20px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 14px;
+        width: 14px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.4s;
+        border-radius: 50%;
+      }
+
+      input:checked + .slider {
+        background-color: var(--accent-primary);
+      }
+
+      input:checked + .slider:before {
+        transform: translateX(16px);
+      }
+
+      /* Stats Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2.5rem;
+      }
+
+      .stat-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        transition: border-color 0.2s ease;
+      }
+
+      .stat-card:hover {
+        border-color: #cbd5e1;
+      }
+
+      .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .stat-value {
+        font-family: var(--font-outfit);
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-top: 0.5rem;
+        color: var(--text-primary);
+      }
+
+      .stat-desc {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        margin-top: auto;
+        padding-top: 0.5rem;
+      }
+
+      /* Search bar */
+      .search-container {
+        margin-bottom: 1.5rem;
+        position: relative;
+      }
+
+      .search-input {
+        width: 100%;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        padding: 0.875rem 1.25rem 0.875rem 2.75rem;
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-family: var(--font-inter);
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      }
+
+      .search-input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      }
+
+      .search-icon {
+        position: absolute;
+        left: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-secondary);
+        pointer-events: none;
+      }
+
+      /* Table Card */
+      .table-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      }
+
+      .table-header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        font-family: var(--font-outfit);
+        font-weight: 600;
+        font-size: 1.1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .table-wrapper {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+      }
+
+      th {
+        background-color: #f8fafc;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      td {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.875rem;
+        vertical-align: middle;
+        transition: background-color 0.2s ease;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      tr:hover td {
+        background-color: #f8fafc;
+      }
+
+      .phone-num {
+        font-family: var(--font-outfit);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .phone-num svg {
+        color: var(--accent-primary);
+      }
+
+      .time-cell {
+        color: var(--text-secondary);
+        font-size: 0.825rem;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.625rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        font-family: var(--font-outfit);
+      }
+
+      .badge-cyan {
+        background-color: #eff6ff;
+        color: #1e40af;
+        border: 1px solid #bfdbfe;
+      }
+
+      .badge-gray {
+        background-color: #f1f5f9;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+      }
+
+      .empty-state {
+        padding: 4rem 2rem;
+        text-align: center;
+        color: var(--text-secondary);
+      }
+
+      .empty-state svg {
+        margin-bottom: 1rem;
+        color: #cbd5e1;
+      }
+
+      .empty-state p {
+        font-size: 0.95rem;
+      }
+
+      .live-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        color: var(--accent-primary);
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: #eff6ff;
+        padding: 0.375rem 0.75rem;
+        border-radius: 20px;
+        border: 1px solid #bfdbfe;
+      }
+
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        background-color: var(--accent-primary);
+        border-radius: 50%;
+      }
+
+      /* Modal / Popup Box Styles */
+      /* Modal / Popup Box Styles */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(15, 23, 42, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .modal-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .modal-content {
+        background: #ffffff;
+        border-radius: 12px;
+        width: 95%;
+        max-width: 600px;
+        box-shadow:
+          0 20px 25px -5px rgba(0, 0, 0, 0.1),
+          0 10px 10px -5px rgba(0, 0, 0, 0.04),
+          0 1px 3px rgba(0, 0, 0, 0.05);
+        border: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        max-height: 85vh;
+        transform: scale(0.95);
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .modal-overlay.active .modal-content {
+        transform: scale(1);
+      }
+
+      .modal-header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #ffffff;
+        border-top-left-radius: 12px;
+        border-top-right-radius: 12px;
+      }
+
+      .modal-title {
+        font-family: var(--font-outfit);
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .modal-close-btn {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        transition: all 0.2s ease;
+      }
+
+      .modal-close-btn:hover {
+        color: var(--text-primary);
+        background-color: #f1f5f9;
+      }
+
+      .modal-body {
+        padding: 1.5rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        background-color: #f8fafc;
+        flex: 1;
+        scroll-behavior: smooth;
+      }
+
+      .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: flex-end;
+        background-color: #ffffff;
+        border-bottom-left-radius: 12px;
+        border-bottom-right-radius: 12px;
+      }
+
+      /* Bubble styles in popup */
+      .chat-bubble-container {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        margin-bottom: 0.5rem;
+      }
+
+      .chat-bubble-container.user {
+        align-items: flex-end;
+      }
+
+      .chat-bubble-container.agent {
+        align-items: flex-start;
+      }
+
+      .chat-bubble {
+        max-width: 75%;
+        padding: 0.75rem 1.125rem;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        word-wrap: break-word;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      }
+
+      .chat-bubble.user {
+        background: linear-gradient(
+          135deg,
+          var(--accent-primary) 0%,
+          #1d4ed8 100%
+        );
+        color: #ffffff;
+        border-radius: 16px 16px 4px 16px;
+      }
+
+      .chat-bubble.agent {
+        background-color: #ffffff;
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 16px 16px 16px 4px;
+      }
+
+      .chat-bubble.forwarded-agent {
+        background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+        color: #92400e;
+        border: 1px solid #fde68a;
+        border-radius: 16px 16px 16px 4px;
+        box-shadow: 0 1px 2px rgba(217, 119, 6, 0.05);
+      }
+
+      .bubble-meta {
+        font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-bottom: 0.25rem;
+        font-family: var(--font-inter);
+      }
+
+      .chat-bubble-container.user .bubble-meta {
+        color: var(--text-secondary);
+        margin-right: 0.25rem;
+      }
+
+      .chat-bubble-container.agent .bubble-meta {
+        color: var(--text-secondary);
+        margin-left: 0.25rem;
+      }
+
+      .bubble-label {
+        font-weight: 600;
+      }
+
+      .chat-bubble-container.user .bubble-label {
+        color: var(--accent-primary);
+      }
+
+      .chat-bubble-container.agent .bubble-label {
+        color: #475569;
+      }
+
+      .chat-bubble-container.agent.forwarded-agent-meta .bubble-label {
+        color: #d97706;
+      }
+
+      .bubble-time,
+      .bubble-speaker {
+        color: #94a3b8;
+        font-size: 0.7rem;
+      }
+
+      /* Custom scrollbar for modal body */
+      .modal-body::-webkit-scrollbar {
+        width: 6px;
+      }
+      .modal-body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .modal-body::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      .modal-body::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 1rem;
+        }
+        header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 1rem;
+        }
+        .controls {
+          width: 100%;
+          justify-content: space-between;
+        }
+      }
+
+      /* Tab styles */
+      .tabs-container {
+        display: flex;
+        gap: 1.5rem;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 1.5rem;
+      }
+
+      .tab-btn {
+        background: none;
+        border: none;
+        font-family: var(--font-outfit);
+        font-weight: 600;
+        font-size: 1.1rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.75rem 0.5rem;
+        border-bottom: 3px solid transparent;
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .tab-btn:hover {
+        color: var(--text-primary);
+      }
+
+      .tab-btn.active {
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+      }
+
+      /* Settings panel styles */
+      .settings-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        padding: 2rem;
+        display: none;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .settings-card.active {
+        display: flex;
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .form-label {
+        font-family: var(--font-outfit);
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: var(--text-primary);
+      }
+
+      .form-desc {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-top: -0.25rem;
+      }
+
+      .form-control {
+        width: 100%;
+        background: #ffffff;
+        border: 1px solid var(--border-color);
+        padding: 0.75rem 1rem;
+        border-radius: 6px;
+        color: var(--text-primary);
+        font-family: var(--font-inter);
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+      }
+
+      .form-control:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      }
+
+      .alert-banner {
+        padding: 1rem;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        display: none;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
+
+      .alert-success {
+        background-color: #ecfdf5;
+        color: #065f46;
+        border: 1px solid #a7f3d0;
+      }
+
+      .alert-error {
+        background-color: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+
+      .placeholder-hint {
+        font-size: 0.75rem;
+        color: var(--accent-primary);
+        font-weight: 500;
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="brand-section">
+          <h1>Goodwind Technologies</h1>
+          <p>AI Voice Support Call Logs</p>
+        </div>
+        <div class="controls">
+          <div class="live-indicator">
+            <span class="live-dot"></span>
+            <span>Live</span>
+          </div>
+          <div class="toggle-container">
+            <span>Auto-Refresh</span>
+            <label class="switch">
+              <input type="checkbox" id="auto-refresh-toggle" checked />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <button class="btn" id="refresh-btn">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"
+              />
+            </svg>
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      <!-- Stats Grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total Calls</span>
+          <span class="stat-value" id="total-calls">0</span>
+          <span class="stat-desc">All recorded inbound/outbound calls</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Orders Checked</span>
+          <span class="stat-value" id="orders-checked">0</span>
+          <span class="stat-desc">Calls checking Zoho API order statuses</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Active Support Line</span>
+          <span
+            class="stat-value"
+            style="
+              font-size: 1.5rem;
+              margin-top: 1.25rem;
+              font-family: var(--font-inter);
+              font-weight: 600;
+              color: var(--accent-primary);
+              display: flex;
+              align-items: center;
+              gap: 0.5rem;
+            "
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"
+              />
+            </svg>
+            +91 80 3133 9945
+          </span>
+          <span class="stat-desc" style="margin-top: auto"
+            >Direct Plivo Hotline</span
+          >
+        </div>
+      </div>
+
+      <!-- Tabs Navigation -->
+      <div class="tabs-container">
+        <button class="tab-btn active" id="tab-calls-btn">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"
+            />
+          </svg>
+          Call History
+        </button>
+        <button class="tab-btn" id="tab-settings-btn">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="3"></circle>
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+          Agent Configuration
+        </button>
+      </div>
+
+      <!-- Call History Section -->
+      <div id="call-history-section">
+        <!-- Search Bar -->
+        <div class="search-container">
+          <svg
+            class="search-icon"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input
+            type="text"
+            id="search-input"
+            class="search-input"
+            placeholder="Search by Phone Number or Order ID..."
+          />
+        </div>
+
+        <!-- Call List Card -->
+        <div class="table-card">
+          <div class="table-header">
+            <span>Recent Conversations</span>
+            <span
+              style="
+                font-size: 0.85rem;
+                color: var(--text-secondary);
+                font-weight: normal;
+              "
+              id="last-updated"
+              >Last updated: Just now</span
+            >
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Phone Number</th>
+                  <th>Time of Call</th>
+                  <th>Order ID</th>
+                  <th>Duration</th>
+                  <th>Forwarding</th>
+                  <th>Transcription</th>
+                  <th>Forwarded Transcript</th>
+                </tr>
+              </thead>
+              <tbody id="calls-table-body">
+                <tr>
+                  <td colspan="7" class="empty-state">
+                    <svg
+                      width="48"
+                      height="48"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <line x1="12" y1="2" x2="12" y2="6"></line>
+                      <line x1="12" y1="18" x2="12" y2="22"></line>
+                      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+                      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+                      <line x1="2" y1="12" x2="6" y2="12"></line>
+                      <line x1="18" y1="12" x2="22" y2="12"></line>
+                      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+                      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+                    </svg>
+                    <p>Loading call history...</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Content -->
+      <div id="settings-section" class="settings-card">
+        <h2
+          style="
+            font-family: var(--font-outfit);
+            font-weight: 600;
+            font-size: 1.5rem;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+          "
+        >
+          Agent Configuration
+        </h2>
+
+        <div id="settings-alert-banner" class="alert-banner"></div>
+
+        <form
+          id="settings-form"
+          style="display: flex; flex-direction: column; gap: 1.5rem"
+        >
+          <div class="form-group">
+            <label class="form-label" for="welcome-message-input"
+              >Welcome Message</label
+            >
+            <span class="form-desc"
+              >The greeting spoken by the voice agent immediately upon call
+              connection.</span
+            >
+            <input
+              type="text"
+              id="welcome-message-input"
+              class="form-control"
+              placeholder="e.g. Hello, thank you for calling Goodwind Technologies. How can I help you?"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              "
+            >
+              <label class="form-label" for="system-prompt-input"
+                >Instructions Prompt (System Instructions)</label
+              >
+              <span class="placeholder-hint"
+                >Must contain the {welcome_message} placeholder for STEP 1</span
+              >
+            </div>
+            <span class="form-desc"
+              >Define the rules, language behavior, and step-by-step logic the
+              agent follows during the call.</span
+            >
+            <textarea
+              id="system-prompt-input"
+              class="form-control"
+              style="
+                min-height: 350px;
+                font-family: monospace;
+                font-size: 0.85rem;
+                line-height: 1.5;
+                resize: vertical;
+              "
+              required
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="forward-number-input"
+              >Call Forwarding Number</label
+            >
+            <span class="form-desc"
+              >The destination phone number (E.164 format, e.g., +918610467370)
+              used when transferring calls to a human agent.</span
+            >
+            <input
+              type="text"
+              id="forward-number-input"
+              class="form-control"
+              placeholder="+918610467370"
+              pattern="^\+[1-9]\d{1,14}$"
+              title="Please enter a valid phone number in E.164 format (e.g. +918610467370)"
+              required
+            />
+          </div>
+
+          <div
+            style="
+              display: flex;
+              justify-content: flex-end;
+              gap: 1rem;
+              margin-top: 1rem;
+              border-top: 1px solid var(--border-color);
+              padding-top: 1.5rem;
+            "
+          >
+            <button
+              type="button"
+              id="reset-settings-btn"
+              class="btn btn-outline"
+              style="
+                border-color: var(--text-secondary);
+                color: var(--text-secondary);
+              "
+            >
+              Reset to Defaults
+            </button>
+            <button type="submit" id="save-settings-btn" class="btn">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+                ></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+              </svg>
+              Save Configuration
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal Popup for Conversation Transcription -->
+    <div class="modal-overlay" id="transcript-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title" id="modal-phone-title"
+            >Conversation Transcript</span
+          >
+          <button class="modal-close-btn" id="modal-close-x">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-dialog-body">
+          <!-- Chat bubbles dynamically generated -->
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn"
+            id="modal-close-btn"
+            style="
+              background-color: var(--text-secondary);
+              border-color: var(--text-secondary);
+            "
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const callsTableBody = document.getElementById("calls-table-body");
+      const searchInput = document.getElementById("search-input");
+      const refreshBtn = document.getElementById("refresh-btn");
+      const autoRefreshToggle = document.getElementById("auto-refresh-toggle");
+      const totalCallsEl = document.getElementById("total-calls");
+      const ordersCheckedEl = document.getElementById("orders-checked");
+      const lastUpdatedEl = document.getElementById("last-updated");
+
+      // Modal Elements
+      const transcriptModal = document.getElementById("transcript-modal");
+      const modalPhoneTitle = document.getElementById("modal-phone-title");
+      const modalDialogBody = document.getElementById("modal-dialog-body");
+      const modalCloseX = document.getElementById("modal-close-x");
+      const modalCloseBtn = document.getElementById("modal-close-btn");
+
+      let callDataCache = [];
+      let autoRefreshInterval = null;
+
+      // Fetch data from FastAPI API
+      async function fetchCalls() {
+        refreshBtn.classList.add("refreshing");
+        try {
+          const apiUrl = window.location.origin + "/api/calls";
+          const response = await fetch(apiUrl);
+          if (!response.ok)
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          const data = await response.json();
+          callDataCache = data;
+          renderCalls(data);
+          updateStats(data);
+
+          const now = new Date();
+          lastUpdatedEl.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        } catch (error) {
+          console.error("Error fetching call logs:", error);
+          callsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            <p style="color: #ef4444;">Failed to load call history: ${error.message}</p>
+                            <p style="font-size:0.8rem; margin-top:0.5rem;">Check that the server is running and accessible.</p>
+                        </td>
+                    </tr>
+                `;
+          lastUpdatedEl.textContent = `Last updated: Failed`;
+        } finally {
+          setTimeout(() => refreshBtn.classList.remove("refreshing"), 600);
+        }
+      }
+
+      // Safely convert any value to a plain string (handles null, arrays, objects, etc.)
+      function safeStr(val) {
+        if (val === null || val === undefined) return "";
+        if (typeof val === "string") return val;
+        if (Array.isArray(val)) return val.map((v) => safeStr(v)).join(" ");
+        if (typeof val === "object") return JSON.stringify(val);
+        return String(val);
+      }
+
+      // Render table rows
+      function renderCalls(calls) {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+
+        // Filter call data based on search term
+        const filteredCalls = calls.filter((call) => {
+          const phone = (call.phone_number || "").toLowerCase();
+          const order = (call.order_number || "").toLowerCase();
+          const transcriptText = (call.transcript || [])
+            .map((t) => t.text)
+            .join(" ")
+            .toLowerCase();
+          const forwardedText = safeStr(
+            call.forwarded_transcript,
+          ).toLowerCase();
+          return (
+            phone.includes(searchTerm) ||
+            order.includes(searchTerm) ||
+            transcriptText.includes(searchTerm) ||
+            forwardedText.includes(searchTerm)
+          );
+        });
+
+        if (filteredCalls.length === 0) {
+          callsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="empty-state">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="8" y1="12" x2="16" y2="12"></line>
+                            </svg>
+                            <p>${searchTerm ? "No calls matching your search query." : "No calls have been logged yet."}</p>
+                        </td>
+                    </tr>
+                `;
+          return;
+        }
+
+        callsTableBody.innerHTML = filteredCalls
+          .map((call) => {
+            const orderBadge = call.order_number
+              ? `<span class="badge badge-cyan">${escapeHtml(call.order_number)}</span>`
+              : `<span class="badge badge-gray">—</span>`;
+
+            const formattedTime = formatCallTime(call.time_of_call);
+            const durationText = formatDuration(call.duration);
+            const forwardedBadge = call.call_forwarded
+              ? `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Forwarded</span>`
+              : `<span class="badge badge-gray">Direct</span>`;
+
+            // View transcript button configuration
+            const hasTranscript = call.transcript && call.transcript.length > 0;
+            const transcriptBtn = hasTranscript
+              ? `<button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-radius: 4px;" onclick="openTranscript('${call.id}')">
+                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;">
+                           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                         </svg> View (${call.transcript.length})
+                       </button>`
+              : `<span style="color: var(--text-secondary); font-style: italic; font-size: 0.8rem;">Empty</span>`;
+
+            // View forwarded transcript button configuration (Calls openForwardedTranscript)
+            const forwardedTranscriptBtn = call.call_forwarded
+              ? `<button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-radius: 4px; border-color: #d97706; color: #d97706;" onclick="openForwardedTranscript('${call.id}')">
+                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;">
+                           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                         </svg> View Forwarded
+                       </button>`
+              : `<span style="color: var(--text-secondary); font-style: italic; font-size: 0.8rem;">—</span>`;
+
+            return `
+                    <tr>
+                        <td>
+                            <div class="phone-num">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                                <span>${escapeHtml(call.phone_number || "Unknown")}</span>
+                            </div>
+                        </td>
+                        <td class="time-cell">${escapeHtml(formattedTime)}</td>
+                        <td>${orderBadge}</td>
+                        <td class="time-cell">${escapeHtml(durationText)}</td>
+                        <td>${forwardedBadge}</td>
+                        <td>${transcriptBtn}</td>
+                        <td>${forwardedTranscriptBtn}</td>
+                    </tr>
+                `;
+          })
+          .join("");
+      }
+
+      // Helper to parse forwarded transcript block into structured speaker turns
+      function parseForwardedTranscript(rawVal) {
+        const text = safeStr(rawVal);
+        if (!text.trim()) return [];
+
+        const lines = text.split("\n");
+        const turns = [];
+
+        let currentSpeaker = null;
+        let currentText = "";
+
+        // Matches speaker tags: "Speaker 1:", "Speaker 2:", "Channel 0:", "Channel 1:", "User:", "Agent:", "Customer:", etc.
+        const speakerRegex =
+          /^\s*(Speaker\s+\d+|Channel\s+\d+|User|Agent|Customer|Speaker)\s*:\s*(.*)$/i;
+
+        for (let line of lines) {
+          line = line.trim();
+          if (!line) continue;
+
+          const match = line.match(speakerRegex);
+          if (match) {
+            if (currentSpeaker && currentText) {
+              turns.push({ speaker: currentSpeaker, text: currentText.trim() });
+            }
+            currentSpeaker = match[1].trim();
+            currentText = match[2].trim();
+          } else {
+            if (currentSpeaker) {
+              currentText += " " + line;
+            } else {
+              currentSpeaker = "Speaker 1";
+              currentText = line;
+            }
+          }
+        }
+
+        if (currentSpeaker && currentText) {
+          turns.push({ speaker: currentSpeaker, text: currentText.trim() });
+        }
+
+        // Fallback if no speakers were identified
+        if (turns.length === 0 && text.trim()) {
+          const paragraphs = text.split(/\n\n+/);
+          paragraphs.forEach((p, index) => {
+            if (p.trim()) {
+              turns.push({
+                speaker: index % 2 === 0 ? "Customer" : "Support Agent",
+                text: p.trim(),
+              });
+            }
+          });
+        }
+
+        return turns;
+      }
+
+      // Open Modal Dialog with AI Agent Transcripts Only
+      window.openTranscript = function (callId) {
+        const callObj = callDataCache.find((c) => c.id === callId);
+        if (!callObj) return;
+
+        modalPhoneTitle.textContent = `Conversation: ${callObj.phone_number || "Unknown"}`;
+        modalDialogBody.innerHTML = "";
+
+        let hasContent = false;
+
+        // Render AI Agent Transcript
+        if (callObj.transcript && callObj.transcript.length > 0) {
+          hasContent = true;
+          callObj.transcript.forEach((msg) => {
+            const isUser = msg.role === "user";
+            const containerClass = isUser ? "user" : "agent";
+            const bubbleClass = isUser ? "user" : "agent";
+            const label = isUser ? "User" : "AI Agent";
+            const timestampStr = msg.timestamp
+              ? ` • ${escapeHtml(msg.timestamp)}`
+              : "";
+
+            const bubbleContainer = document.createElement("div");
+            bubbleContainer.className = `chat-bubble-container ${containerClass}`;
+
+            bubbleContainer.innerHTML = `
+                        <div class="bubble-meta">
+                            <span class="bubble-label">${label}</span>
+                            <span class="bubble-time">${timestampStr}</span>
+                        </div>
+                        <div class="chat-bubble ${bubbleClass}">
+                            <div class="bubble-content">${escapeHtml(msg.text)}</div>
+                        </div>
+                    `;
+            modalDialogBody.appendChild(bubbleContainer);
+          });
+        }
+
+        if (!hasContent) {
+          modalDialogBody.innerHTML =
+            '<p style="text-align: center; color: var(--text-secondary); font-style: italic; margin-top: 2rem;">No conversation logs recorded for this call.</p>';
+        }
+
+        transcriptModal.classList.add("active");
+        document.body.style.overflow = "hidden"; // prevent background scrolling
+      };
+
+      // Open Modal Dialog with Forwarded Conversation Transcripts Only
+      window.openForwardedTranscript = function (callId) {
+        const callObj = callDataCache.find((c) => c.id === callId);
+        if (!callObj) return;
+
+        modalPhoneTitle.textContent = `Forwarded Call Transcript: ${callObj.phone_number || "Unknown"}`;
+        modalDialogBody.innerHTML = "";
+
+        if (callObj.call_forwarded) {
+          if (callObj.forwarded_transcript) {
+            const turns = parseForwardedTranscript(
+              callObj.forwarded_transcript,
+            );
+            turns.forEach((turn) => {
+              const isUser =
+                turn.speaker.toLowerCase().includes("speaker 1") ||
+                turn.speaker.toLowerCase().includes("channel 0") ||
+                turn.speaker.toLowerCase().includes("customer") ||
+                turn.speaker.toLowerCase().includes("user");
+
+              const containerClass = isUser ? "user" : "agent";
+              const bubbleClass = isUser ? "user" : "forwarded-agent";
+              const label = isUser ? "Customer" : "Support Agent";
+
+              const bubbleContainer = document.createElement("div");
+              bubbleContainer.className = `chat-bubble-container ${containerClass} ${!isUser ? "forwarded-agent-meta" : ""}`;
+              bubbleContainer.innerHTML = `
+                            <div class="bubble-meta">
+                                <span class="bubble-label">${label}</span>
+                                <span class="bubble-speaker">(${escapeHtml(turn.speaker)})</span>
+                            </div>
+                            <div class="chat-bubble ${bubbleClass}">
+                                <div class="bubble-content" style="white-space: pre-wrap;">${escapeHtml(turn.text)}</div>
+                            </div>
+                        `;
+              modalDialogBody.appendChild(bubbleContainer);
+            });
+          } else {
+            modalDialogBody.innerHTML =
+              '<p style="text-align: center; color: var(--text-secondary); font-style: italic; margin-top: 2rem;">Waiting for forwarded call recording transcription...</p>';
+          }
+        } else {
+          modalDialogBody.innerHTML =
+            '<p style="text-align: center; color: var(--text-secondary); font-style: italic; margin-top: 2rem;">No forwarded conversation transcript recorded.</p>';
+        }
+
+        transcriptModal.classList.add("active");
+        document.body.style.overflow = "hidden"; // prevent background scrolling
+      };
+
+      // Close Modal dialog functions
+      function closeModal() {
+        transcriptModal.classList.remove("active");
+        document.body.style.overflow = "";
+      }
+
+      modalCloseX.addEventListener("click", closeModal);
+      modalCloseBtn.addEventListener("click", closeModal);
+      transcriptModal.addEventListener("click", (e) => {
+        if (e.target === transcriptModal) closeModal();
+      });
+
+      // Helper to format call durations
+      function formatDuration(seconds) {
+        if (!seconds || seconds <= 0) return "0s";
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        if (mins > 0) {
+          return `${mins}m ${secs}s`;
+        }
+        return `${secs}s`;
+      }
+
+      // Helper to format timestamps nicely
+      function formatCallTime(timestampStr) {
+        if (!timestampStr) return "N/A";
+        try {
+          const isoStr = timestampStr.replace(" ", "T");
+          const date = new Date(isoStr);
+          if (isNaN(date.getTime())) return timestampStr;
+
+          return date.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+        } catch (e) {
+          return timestampStr;
+        }
+      }
+
+      // Helper to update dashboard stats
+      function updateStats(calls) {
+        totalCallsEl.textContent = calls.length;
+        const checkedCount = calls.filter((call) => call.order_number).length;
+        ordersCheckedEl.textContent = checkedCount;
+      }
+
+      // HTML injection protection
+      function escapeHtml(str) {
+        if (!str) return "";
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      // Set up auto refresh interval
+      function manageAutoRefresh() {
+        if (autoRefreshToggle.checked) {
+          if (!autoRefreshInterval) {
+            autoRefreshInterval = setInterval(fetchCalls, 15000);
+          }
+        } else {
+          if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
+          }
+        }
+      }
+
+      // Event Listeners
+      refreshBtn.addEventListener("click", fetchCalls);
+      autoRefreshToggle.addEventListener("change", manageAutoRefresh);
+      searchInput.addEventListener("input", () => {
+        renderCalls(callDataCache);
+      });
+
+      // Settings Navigation & Tab switching selectors
+      const tabCallsBtn = document.getElementById("tab-calls-btn");
+      const tabSettingsBtn = document.getElementById("tab-settings-btn");
+      const callHistorySection = document.getElementById(
+        "call-history-section",
+      );
+      const settingsSection = document.getElementById("settings-section");
+
+      // Settings form elements
+      const settingsForm = document.getElementById("settings-form");
+      const welcomeMessageInput = document.getElementById(
+        "welcome-message-input",
+      );
+      const systemPromptInput = document.getElementById("system-prompt-input");
+      const forwardNumberInput = document.getElementById(
+        "forward-number-input",
+      );
+      const saveSettingsBtn = document.getElementById("save-settings-btn");
+      const resetSettingsBtn = document.getElementById("reset-settings-btn");
+      const settingsAlertBanner = document.getElementById(
+        "settings-alert-banner",
+      );
+
+      // Default settings object for client-side reset
+      let defaultSettings = {
+        welcome_message:
+          "Hello, thank you for calling Goodwind Technologies support. How can I help you today?",
+        system_prompt: `You are a voice support agent for Goodwind Technologies handling inbound calls.
+
+RULES:
+- Phone call. Max 1-2 short sentences per response. No markdown, bullets, or emojis.
+- Speak at a brisk, natural phone-call pace. Never speak slowly or add long pauses.
+- Respond immediately after the caller finishes — do not hesitate or overthink.
+- Always reply in whatever language the customer speaks (English, Tamil, or Malayalam). Detect it automatically. Never ask them to choose.
+- Never fabricate order information. Only relay what check_order_status returns.
+- LANGUAGE FLOW:
+  * Automatic Switch: If you detect the customer speaking Tamil or Malayalam, call set_language immediately. Change language and converse in it. Do NOT re-mention or repeatedly talk about the language in subsequent turns.
+  * Requested Switch: If the customer explicitly requests a language change (e.g. "please speak in Tamil" or "change to Malayalam"), call set_language, inform them once in the target language that you have switched (e.g. "Sure, switching to Tamil" or "ശരി, മലയാളത്തിൽ സംസാരിക്കാം"), and then continue in that language.
+  * Malayalam vs Tamil: Clearly identify the difference between Malayalam and Tamil. They are distinct languages with different vocabularies and scripts. Never mix Tamil words/grammar/scripts into Malayalam, or Malayalam words/grammar/scripts into Tamil. Keep them strictly separate and accurate.
+
+FLOW:
+
+STEP 1 — GREET IMMEDIATELY: As soon as the call connects, YOU speak first. Greet the caller by saying exactly: "{welcome_message}". Never wait for the caller to speak first.
+
+STEP 2 — After customer speaks, classify IMMEDIATELY and act:
+  A. ORDER STATUS → ask for their 4-digit Order ID (once only), call check_order_status, relay result.
+  B. ANYTHING ELSE (refunds, cancellations, returns, complaints, sales, speak to human) → say "I'll transfer you to a support agent now, please hold on." in their language, then call forward_call.
+  C. UNCLEAR → one short clarifying question, then classify.
+
+STEP 3 — ORDER RESULT:
+  - Dispatched → say order is dispatched.
+  - Quoted → say status is Quoted.
+  - Error/not found → say unable to retrieve right now.
+  Ask if anything else needed.
+
+STEP 4 — CLOSE: Warm goodbye in their language, call end_conversation.
+
+ORDER ID: 4 digits only. Words like "six one eight zero" = 6180. Do NOT read it back. Call check_order_status immediately.
+
+FORWARD: Say "I'll transfer you to a support agent now, please hold on." first, then call forward_call immediately.
+
+STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forward these.`,
+        forward_to_number: "+918610467370",
+      };
+
+      // Switch Tab event listeners
+      tabCallsBtn.addEventListener("click", () => {
+        tabCallsBtn.classList.add("active");
+        tabSettingsBtn.classList.remove("active");
+        callHistorySection.style.display = "block";
+        settingsSection.classList.remove("active");
+        hideSettingsAlert();
+      });
+
+      tabSettingsBtn.addEventListener("click", () => {
+        tabSettingsBtn.classList.add("active");
+        tabCallsBtn.classList.remove("active");
+        callHistorySection.style.display = "none";
+        settingsSection.classList.add("active");
+        fetchSettings(); // Refresh settings form when tab is selected
+      });
+
+      // Fetch settings from API
+      async function fetchSettings() {
+        try {
+          const apiUrl = window.location.origin + "/api/settings";
+          const response = await fetch(apiUrl);
+          if (!response.ok) throw new Error("Failed to load settings");
+          const settings = await response.json();
+
+          welcomeMessageInput.value =
+            settings.welcome_message || defaultSettings.welcome_message;
+          systemPromptInput.value =
+            settings.system_prompt || defaultSettings.system_prompt;
+          forwardNumberInput.value =
+            settings.forward_to_number || defaultSettings.forward_to_number;
+        } catch (error) {
+          console.error("Error loading settings:", error);
+          showSettingsAlert(
+            "Failed to load settings from DB. Showing local defaults.",
+            "error",
+          );
+        }
+      }
+
+      // Save settings via API
+      settingsForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        // Validation check for welcome_message placeholder
+        const systemPromptVal = systemPromptInput.value;
+        if (!systemPromptVal.includes("{welcome_message}")) {
+          showSettingsAlert(
+            "Validation Warning: The system prompt must contain the '{welcome_message}' placeholder so the greeting can be template-injected dynamically.",
+            "error",
+          );
+          return;
+        }
+
+        saveSettingsBtn.disabled = true;
+        saveSettingsBtn.textContent = "Saving...";
+        hideSettingsAlert();
+
+        try {
+          const apiUrl = window.location.origin + "/api/settings";
+          const payload = {
+            welcome_message: welcomeMessageInput.value,
+            system_prompt: systemPromptInput.value,
+            forward_to_number: forwardNumberInput.value,
+          };
+
+          const response = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) throw new Error("Failed to update settings");
+
+          showSettingsAlert(
+            "Configuration settings updated successfully and saved in DB!",
+            "success",
+          );
+        } catch (error) {
+          console.error("Error saving settings:", error);
+          showSettingsAlert(`Error saving settings: ${error.message}`, "error");
+        } finally {
+          saveSettingsBtn.disabled = false;
+          saveSettingsBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            Save Configuration
+          `;
+        }
+      });
+
+      // Reset fields to client default config
+      resetSettingsBtn.addEventListener("click", () => {
+        if (
+          confirm(
+            "Are you sure you want to reset settings to default values? Note: You will still need to click 'Save Configuration' to apply changes to the database.",
+          )
+        ) {
+          welcomeMessageInput.value = defaultSettings.welcome_message;
+          systemPromptInput.value = defaultSettings.system_prompt;
+          forwardNumberInput.value = defaultSettings.forward_to_number;
+          showSettingsAlert(
+            "Form fields reset to default values. Click 'Save Configuration' to submit.",
+            "success",
+          );
+        }
+      });
+
+      // Helper alert show/hide
+      function showSettingsAlert(msg, type) {
+        settingsAlertBanner.textContent = msg;
+        settingsAlertBanner.className = `alert-banner alert-${type}`;
+        settingsAlertBanner.style.display = "flex";
+        settingsAlertBanner.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }
+
+      function hideSettingsAlert() {
+        settingsAlertBanner.style.display = "none";
+      }
+
+      // Initialize dashboard
+      fetchCalls();
+      fetchSettings(); // Pre-fetch settings
+      manageAutoRefresh();
+    </script>
+  </body>
+</html>

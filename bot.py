@@ -51,6 +51,8 @@ from database import (
     db_set_forwarded,
     db_update_order,
     db_get_settings,
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_WELCOME_MESSAGE,
 )
 
 load_dotenv()
@@ -64,45 +66,7 @@ ZOHO_API_URL: str = os.getenv(
 )
 ZOHO_PUBLIC_KEY: str = os.getenv("ZOHO_API_PUBLIC_KEY", "FjhK5xdE8XD57tqm3Z0SeZYke")
 
-
-# ─── System Prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are a voice support agent for Goodwind Technologies handling inbound calls.
-
-RULES:
-- Phone call. Max 1-2 short sentences per response. No markdown, bullets, or emojis.
-- Speak at a brisk, natural phone-call pace. Never speak slowly or add long pauses.
-- Respond immediately after the caller finishes — do not hesitate or overthink.
-- Always reply in whatever language the customer speaks (English, Tamil, or Malayalam). Detect it automatically. Never ask them to choose.
-- Never fabricate order information. Only relay what check_order_status returns.
-- LANGUAGE FLOW:
-  * Automatic Switch: If you detect the customer speaking Tamil or Malayalam, call set_language immediately. Change language and converse in it. Do NOT re-mention or repeatedly talk about the language in subsequent turns.
-  * Requested Switch: If the customer explicitly requests a language change (e.g. "please speak in Tamil" or "change to Malayalam"), call set_language, inform them once in the target language that you have switched (e.g. "Sure, switching to Tamil" or "ശരി, മലയാളത്തിൽ സംസാരിക്കാം"), and then continue in that language.
-  * Malayalam vs Tamil: Clearly identify the difference between Malayalam and Tamil. They are distinct languages with different vocabularies and scripts. Never mix Tamil words/grammar/scripts into Malayalam, or Malayalam words/grammar/scripts into Tamil. Keep them strictly separate and accurate.
-
-FLOW:
-
-STEP 1 — GREET IMMEDIATELY: As soon as the call connects, YOU speak first. Greet the caller by saying exactly: "{welcome_message}". Never wait for the caller to speak first.
-
-STEP 2 — After customer speaks, classify IMMEDIATELY and act:
-  A. ORDER STATUS → ask for their 4-digit Order ID (once only), call check_order_status, relay result.
-  B. ANYTHING ELSE (refunds, cancellations, returns, complaints, sales, speak to human) → say "I'll transfer you to a support agent now, please hold on." in their language, then call forward_call.
-  C. UNCLEAR → one short clarifying question, then classify.
-
-STEP 3 — ORDER RESULT:
-  - Dispatched → say order is dispatched.
-  - Quoted → say status is Quoted.
-  - Error/not found → say unable to retrieve right now.
-  Ask if anything else needed.
-
-STEP 4 — CLOSE: Warm goodbye in their language, call end_conversation.
-
-ORDER ID: 4 digits only. Words like "six one eight zero" = 6180. Do NOT read it back. Call check_order_status immediately.
-
-FORWARD: Say "I'll transfer you to a support agent now, please hold on." first, then call forward_call immediately.
-
-STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forward these."""
-
-# Seeded as the first user turn so Gemini Live speaks on connect (initial context only).
+# Greeting trigger injected as the first user turn so Gemini Live speaks immediately on connect.
 CONNECT_GREETING_TRIGGER = "[call connected] Greet the caller immediately."
 
 # ─── Bot Pipeline ──────────────────────────────────────────────────────────────
@@ -120,11 +84,18 @@ async def run_bot(
         "language": "english"
     }
 
-    # Retrieve and apply configuration settings dynamically
-    settings = db_get_settings()
-    welcome_message = settings.get("welcome_message", "Hello, thank you for calling Goodwind Technologies support. How can I help you today?")
-    system_prompt_template = settings.get("system_prompt", SYSTEM_PROMPT)
+    # ── Load all agent config from DB (bypass cache for each new call) ──────────
+    settings = db_get_settings(bypass_cache=True)
+    welcome_message = settings.get("welcome_message") or DEFAULT_WELCOME_MESSAGE
+    system_prompt_template = settings.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
+    forward_to_number = settings.get("forward_to_number") or ""
+
+    # Inject the greeting into the system prompt placeholder
     resolved_system_prompt = system_prompt_template.replace("{welcome_message}", welcome_message)
+
+    print(f">>> [BOT CONFIG] welcome_message: {welcome_message[:60]}...")
+    print(f">>> [BOT CONFIG] forward_to_number: {forward_to_number}")
+    print(f">>> [BOT CONFIG] system_prompt (first 80 chars): {resolved_system_prompt[:80]}...")
 
     db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid or "")
     start_time = time.time()

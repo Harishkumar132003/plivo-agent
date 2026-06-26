@@ -1,5 +1,7 @@
 import os
 from datetime import datetime
+import hashlib
+import secrets
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -13,6 +15,7 @@ DB_CONNECTION_STRING = os.getenv("DB_CONNECTION_STRING", "").strip('"\' ')
 DB_NAME = os.getenv("DB", "goodwind").strip('"\' ')
 
 _client = None
+_settings_cache = None
 
 def get_db():
     """Returns the MongoDB database instance."""
@@ -31,6 +34,8 @@ def init_db():
         db = get_db()
         db.command("ping")
         print(f"Successfully connected to MongoDB database: {DB_NAME}")
+        # Seed default admin user if database is empty of users
+        db_seed_default_user()
     except PyMongoError as e:
         print(f"MongoDB connection failed during initialization: {e}")
         raise e
@@ -88,18 +93,58 @@ def db_append_transcript(db_id: str, role: str, text: str):
     except PyMongoError as e:
         print(f"Failed to append transcript to MongoDB: {e}")
 
-def db_set_duration(db_id: str, duration: int):
-    """Updates the duration of the call in seconds."""
+def calculate_call_cost(duration: int, speaking_time: float = 0.0) -> dict:
+    """Calculates call costs for Plivo and Gemini Live.
+    
+    Plivo Voice: $0.0085 per minute (rounded up to nearest minute)
+    Gemini 2.5 Flash Live API:
+      - Audio Input: $0.00002 / second of call duration (since audio is constantly sent)
+      - Audio Output: $0.00015 / second of assistant speaking time
+    """
+    import math
+    if duration <= 0:
+        plivo_cost = 0.0
+    else:
+        # Plivo bills per minute (rounded up)
+        plivo_cost = math.ceil(duration / 60.0) * 0.0085
+    
+    # Gemini Live
+    # If speaking_time is 0 but duration > 0, estimate it as 30% of call duration
+    if speaking_time <= 0 and duration > 0:
+        speaking_time = duration * 0.3
+    
+    gemini_input_cost = duration * 0.00002
+    gemini_output_cost = speaking_time * 0.00015
+    gemini_cost = gemini_input_cost + gemini_output_cost
+    
+    total_cost = plivo_cost + gemini_cost
+    
+    return {
+        "plivo_cost": round(plivo_cost, 5),
+        "gemini_cost": round(gemini_cost, 5),
+        "total_cost": round(total_cost, 5)
+    }
+
+def db_set_duration(db_id: str, duration: int, speaking_time: float = 0.0):
+    """Updates the duration and calculates costs of the call."""
     if not db_id:
         return
     try:
+        costs = calculate_call_cost(duration, speaking_time)
         db = get_db()
         db.calls.update_one(
             {"_id": ObjectId(db_id)},
-            {"$set": {"duration": duration}}
+            {
+                "$set": {
+                    "duration": duration,
+                    "plivo_cost": costs["plivo_cost"],
+                    "gemini_cost": costs["gemini_cost"],
+                    "total_cost": costs["total_cost"]
+                }
+            }
         )
     except PyMongoError as e:
-        print(f"Failed to update duration in MongoDB: {e}")
+        print(f"Failed to update duration and cost in MongoDB: {e}")
 
 def db_set_forwarded(db_id: str, forwarded: bool = True):
     """Updates the call forwarded status."""
@@ -134,6 +179,14 @@ def db_get_all_calls():
         calls = []
         for doc in db.calls.find().sort("time_of_call", -1):
             doc["id"] = str(doc.pop("_id"))
+            # Ensure cost fields exist
+            if "total_cost" not in doc:
+                duration = doc.get("duration", 0)
+                # Estimate speaking time as 30% of duration for historical calls
+                costs = calculate_call_cost(duration, duration * 0.3)
+                doc["plivo_cost"] = costs["plivo_cost"]
+                doc["gemini_cost"] = costs["gemini_cost"]
+                doc["total_cost"] = costs["total_cost"]
             calls.append(doc)
         return calls
     except PyMongoError as e:
@@ -178,8 +231,11 @@ FORWARD: Say "I'll transfer you to a support agent now, please hold on." first, 
 
 STRICT: Never answer refunds/cancellations/complaints/sales/returns. Always forward these."""
 
-def db_get_settings():
+def db_get_settings(bypass_cache: bool = False):
     """Retrieves the system settings document, initializing with defaults if empty."""
+    global _settings_cache
+    if _settings_cache is not None and not bypass_cache:
+        return _settings_cache
     try:
         db = get_db()
         settings = db.settings.find_one({"key": "agent_settings"})
@@ -195,6 +251,7 @@ def db_get_settings():
         # Convert _id to string for JSON serialization compatibility
         if "_id" in settings:
             settings["_id"] = str(settings["_id"])
+        _settings_cache = settings
         return settings
     except PyMongoError as e:
         print(f"Failed to retrieve settings from MongoDB: {e}")
@@ -207,6 +264,7 @@ def db_get_settings():
 
 def db_update_settings(welcome_message: str, system_prompt: str, forward_to_number: str):
     """Updates the system settings in MongoDB."""
+    global _settings_cache
     try:
         db = get_db()
         db.settings.update_one(
@@ -220,7 +278,126 @@ def db_update_settings(welcome_message: str, system_prompt: str, forward_to_numb
             },
             upsert=True
         )
+        # Update cache
+        _settings_cache = {
+            "key": "agent_settings",
+            "welcome_message": welcome_message.strip(),
+            "system_prompt": system_prompt.strip(),
+            "forward_to_number": forward_to_number.strip()
+        }
         return True
     except PyMongoError as e:
         print(f"Failed to update settings in MongoDB: {e}")
         return False
+
+# ─── User Authentication & Sessions ───────────────────────────────────────────
+
+def hash_password(password: str) -> str:
+    """Hashes a password using PBKDF2-SHA256 with a salt."""
+    salt = secrets.token_hex(16)
+    hash_val = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        100000
+    ).hex()
+    return f"{salt}:{hash_val}"
+
+def verify_password(stored_password: str, provided_password: str) -> bool:
+    """Verifies a password against the stored hashed version."""
+    try:
+        if ":" not in stored_password:
+            return False
+        salt, hash_val = stored_password.split(":")
+        calc_hash = hashlib.pbkdf2_hmac(
+            "sha256",
+            provided_password.encode("utf-8"),
+            salt.encode("utf-8"),
+            100000
+        ).hex()
+        return secrets.compare_digest(hash_val, calc_hash)
+    except Exception:
+        return False
+
+def db_check_user_credentials(username: str, password: str) -> bool:
+    """Checks user credentials against MongoDB."""
+    try:
+        db = get_db()
+        user = db.users.find_one({"username": username.strip()})
+        if not user:
+            return False
+        return verify_password(user["password"], password)
+    except PyMongoError as e:
+        print(f"Failed to check user credentials: {e}")
+        return False
+
+def db_create_user(username: str, password: str) -> bool:
+    """Creates a new user with a hashed password in MongoDB."""
+    try:
+        db = get_db()
+        if db.users.find_one({"username": username.strip()}):
+            return False
+        
+        hashed = hash_password(password)
+        db.users.insert_one({
+            "username": username.strip(),
+            "password": hashed,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        return True
+    except PyMongoError as e:
+        print(f"Failed to create user in MongoDB: {e}")
+        return False
+
+def db_seed_default_user():
+    """Seeds default admin/admin user if no users exist, and seeds demouser@gmail.com if missing."""
+    try:
+        db = get_db()
+        count = db.users.count_documents({})
+        if count == 0:
+            print("No users found in database. Seeding default 'admin' user with password 'admin'...")
+            db_create_user("admin", "admin")
+            print("Seeded default 'admin' user successfully.")
+        
+        # Check and seed demouser@gmail.com
+        if not db.users.find_one({"username": "demouser@gmail.com"}):
+            print("Seeding 'demouser@gmail.com' user with password '12345678'...")
+            db_create_user("demouser@gmail.com", "12345678")
+            print("Seeded 'demouser@gmail.com' successfully.")
+    except PyMongoError as e:
+        print(f"Failed to seed default user: {e}")
+
+def db_create_session(username: str) -> str:
+    """Generates and stores a session token for the user."""
+    try:
+        db = get_db()
+        token = secrets.token_hex(32)
+        db.sessions.insert_one({
+            "token": token,
+            "username": username,
+            "created_at": datetime.now()
+        })
+        return token
+    except PyMongoError as e:
+        print(f"Failed to create session in MongoDB: {e}")
+        return ""
+
+def db_verify_session(token: str) -> str | None:
+    """Verifies a session token and returns the username if valid."""
+    try:
+        db = get_db()
+        session = db.sessions.find_one({"token": token})
+        if session:
+            return session["username"]
+        return None
+    except PyMongoError as e:
+        print(f"Failed to verify session in MongoDB: {e}")
+        return None
+
+def db_delete_session(token: str):
+    """Deletes a session token from MongoDB."""
+    try:
+        db = get_db()
+        db.sessions.delete_one({"token": token})
+    except PyMongoError as e:
+        print(f"Failed to delete session in MongoDB: {e}")

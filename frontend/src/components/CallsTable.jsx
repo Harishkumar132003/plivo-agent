@@ -1,11 +1,36 @@
-import React from "react";
-import { Phone, MessageSquare } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { 
+  Phone, 
+  MessageSquare, 
+  ArrowUpDown, 
+  ArrowUp, 
+  ArrowDown, 
+  Filter
+} from "lucide-react";
 
 export const CallsTable = ({
   calls,
   lastUpdated,
   onOpenTranscript,
+  onInitiateCallback,
 }) => {
+  // Sort State
+  const [sortKey, setSortKey] = useState("time_of_call");
+  const [sortOrder, setSortOrder] = useState("desc"); // 'asc' | 'desc'
+
+  // Filter State
+  const [typeFilter, setTypeFilter] = useState("all"); // 'all' | 'direct' | 'forwarded'
+  const [orderFilter, setOrderFilter] = useState("all"); // 'all' | 'with-order' | 'no-order'
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [typeFilter, orderFilter]);
+
   // Duration formatting helper
   const formatDuration = (seconds) => {
     if (!seconds || seconds <= 0) return "0s";
@@ -37,43 +62,158 @@ export const CallsTable = ({
     }
   };
 
+  // Handle header sort triggers
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortOrder("desc"); // Default to desc for new keys
+    }
+  };
+
+  // Render Sort Header Indicator
+  const renderSortIndicator = (key) => {
+    if (sortKey !== key) return <ArrowUpDown size={12} style={{ marginLeft: "4px", opacity: 0.4 }} />;
+    return sortOrder === "asc" ? (
+      <ArrowUp size={12} style={{ marginLeft: "4px", color: "var(--accent-primary)" }} />
+    ) : (
+      <ArrowDown size={12} style={{ marginLeft: "4px", color: "var(--accent-primary)" }} />
+    );
+  };
+
+  // 1. Apply dropdown filters
+  const filteredCalls = calls.filter((call) => {
+    // Type Filter
+    if (typeFilter === "direct" && call.call_forwarded) return false;
+    if (typeFilter === "forwarded" && !call.call_forwarded) return false;
+
+    // Order ID Filter
+    const hasOrder = !!call.order_number;
+    if (orderFilter === "with-order" && !hasOrder) return false;
+    if (orderFilter === "no-order" && hasOrder) return false;
+
+    return true;
+  });
+
+  // 2. Apply sorting
+  const sortedCalls = [...filteredCalls].sort((a, b) => {
+    let valA = a[sortKey];
+    let valB = b[sortKey];
+
+    // Fallbacks and parsing
+    if (sortKey === "total_cost") {
+      valA = a.total_cost ?? 0;
+      valB = b.total_cost ?? 0;
+    } else if (sortKey === "duration") {
+      valA = a.duration ?? 0;
+      valB = b.duration ?? 0;
+    } else if (sortKey === "phone_number") {
+      valA = (a.phone_number || "").toLowerCase();
+      valB = (b.phone_number || "").toLowerCase();
+    } else if (sortKey === "time_of_call") {
+      valA = a.time_of_call ? new Date(a.time_of_call.replace(" ", "T")).getTime() : 0;
+      valB = b.time_of_call ? new Date(b.time_of_call.replace(" ", "T")).getTime() : 0;
+    }
+
+    if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+    if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  // 3. Paginate slice
+  const totalItems = sortedCalls.length;
+  const totalPages = Math.max(Math.ceil(totalItems / itemsPerPage), 1);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  const paginatedCalls = sortedCalls.slice(startIndex, endIndex);
+
   return (
     <div className="table-card">
-      <div className="table-header">
-        <span>Recent Conversations</span>
-        <span
-          style={{
-            fontSize: "0.85rem",
-            color: "var(--text-secondary)",
-            fontWeight: "normal",
-          }}
-        >
-          {lastUpdated}
-        </span>
+      <div className="table-header" style={{ flexWrap: "wrap", gap: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span>Recent Conversations</span>
+          <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: "normal" }}>
+            ({totalItems} matched)
+          </span>
+        </div>
+
+        {/* Filter Controls Row */}
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+            <Filter size={12} />
+            <span>Filters:</span>
+          </div>
+
+          {/* Call Type Dropdown */}
+          <select 
+            className="filter-select"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            style={{ padding: "0.4rem 0.75rem", fontSize: "0.8rem" }}
+          >
+            <option value="all">All Types</option>
+            <option value="direct">Direct Only</option>
+            <option value="forwarded">Forwarded Only</option>
+          </select>
+
+          {/* Order Status Dropdown */}
+          <select 
+            className="filter-select"
+            value={orderFilter}
+            onChange={(e) => setOrderFilter(e.target.value)}
+            style={{ padding: "0.4rem 0.75rem", fontSize: "0.8rem" }}
+          >
+            <option value="all">All Orders</option>
+            <option value="with-order">With Order ID</option>
+            <option value="no-order">Without Order ID</option>
+          </select>
+
+          <span
+            style={{
+              fontSize: "0.8rem",
+              color: "var(--text-secondary)",
+              fontWeight: "normal",
+              marginLeft: "0.5rem"
+            }}
+          >
+            {lastUpdated}
+          </span>
+        </div>
       </div>
+
       <div className="table-wrapper">
         <table>
           <thead>
             <tr>
-              <th>Phone Number</th>
-              <th>Time of Call</th>
+              <th className="sortable" onClick={() => handleSort("phone_number")}>
+                Phone Number {renderSortIndicator("phone_number")}
+              </th>
+              <th className="sortable" onClick={() => handleSort("time_of_call")}>
+                Time of Call {renderSortIndicator("time_of_call")}
+              </th>
               <th>Order ID</th>
-              <th>Duration</th>
+              <th className="sortable" onClick={() => handleSort("duration")}>
+                Duration {renderSortIndicator("duration")}
+              </th>
+              <th className="sortable" onClick={() => handleSort("total_cost")}>
+                Cost {renderSortIndicator("total_cost")}
+              </th>
               <th>Forwarding</th>
               <th>Transcription</th>
               <th>Forwarded Transcript</th>
             </tr>
           </thead>
           <tbody>
-            {calls.length === 0 ? (
+            {paginatedCalls.length === 0 ? (
               <tr>
-                <td colSpan={7} className="empty-state">
-                  <MessageSquare size={48} style={{ color: "#cbd5e1", marginBottom: "1rem" }} />
-                  <p>No conversations matched the filter or have been logged yet.</p>
+                <td colSpan={8} className="empty-state">
+                  <MessageSquare size={48} />
+                  <p>No conversations matched the selected filters.</p>
                 </td>
               </tr>
             ) : (
-              calls.map((call) => {
+              paginatedCalls.map((call) => {
                 const hasTranscript = call.transcript && call.transcript.length > 0;
 
                 return (
@@ -94,13 +234,23 @@ export const CallsTable = ({
                     </td>
                     <td className="time-cell">{formatDuration(call.duration)}</td>
                     <td>
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
+                          ${(call.total_cost ?? 0).toFixed(2)}
+                        </span>
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }} title="Plivo / Gemini Live">
+                          P: ${(call.plivo_cost ?? 0).toFixed(2)} | G: ${(call.gemini_cost ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
                       {call.call_forwarded ? (
                         <span
                           className="badge"
                           style={{
-                            backgroundColor: "#fef3c7",
-                            color: "#d97706",
-                            border: "1px solid #fde68a",
+                            backgroundColor: "var(--warning-bg)",
+                            color: "var(--warning-text)",
+                            border: "1px solid var(--warning-border)",
                           }}
                         >
                           Forwarded
@@ -116,7 +266,7 @@ export const CallsTable = ({
                           style={{
                             padding: "0.35rem 0.75rem",
                             fontSize: "0.8rem",
-                            borderRadius: "4px",
+                            borderRadius: "6px",
                           }}
                           onClick={() => onOpenTranscript(call, "standard")}
                         >
@@ -146,9 +296,9 @@ export const CallsTable = ({
                           style={{
                             padding: "0.35rem 0.75rem",
                             fontSize: "0.8rem",
-                            borderRadius: "4px",
-                            borderColor: "#d97706",
-                            color: "#d97706",
+                            borderRadius: "6px",
+                            borderColor: "var(--warning-text)",
+                            color: "var(--warning-text)",
                           }}
                           onClick={() => onOpenTranscript(call, "forwarded")}
                         >
@@ -178,6 +328,43 @@ export const CallsTable = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls Footer */}
+      {totalItems > 0 && (
+        <div className="pagination-container">
+          <div className="pagination-info">
+            Showing {startIndex + 1} to {endIndex} of {totalItems} entries
+          </div>
+          <div className="pagination-controls">
+            <button
+              className="page-btn"
+              onClick={() => setCurrentPage(currentPage - 1)}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </button>
+            
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              <button
+                key={page}
+                className={`page-btn ${currentPage === page ? "active" : ""}`}
+                onClick={() => setCurrentPage(page)}
+              >
+                {page}
+              </button>
+            ))}
+
+            <button
+              className="page-btn"
+              onClick={() => setCurrentPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
