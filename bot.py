@@ -46,12 +46,7 @@ from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 from pipecat.workers.runner import WorkerRunner
 
 from database import (
-    db_append_transcript,
-    db_set_transcript,
-    db_create_call,
-    db_set_duration,
-    db_set_forwarded,
-    db_update_order,
+    db_save_call,
     db_get_settings,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_WELCOME_MESSAGE,
@@ -99,9 +94,10 @@ async def run_bot(
     print(f">>> [BOT CONFIG] forward_to_number: {forward_to_number}")
     print(f">>> [BOT CONFIG] system_prompt (first 80 chars): {resolved_system_prompt[:80]}...")
 
-    db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid or "")
     start_time = time.time()
     call_transcript = []
+    order_number = ""
+    call_forwarded = False
 
     # Placeholders for nested function access
     llm: GeminiLiveLLMService | None = None
@@ -136,8 +132,8 @@ async def run_bot(
                     logger.info(f"Zoho API response for {order_id}: {data}")
 
             status = data.get("result", "")
-            if db_id:
-                db_update_order(db_id, order_id)
+            nonlocal order_number
+            order_number = order_id.strip()
             await params.result_callback({"status": status})
 
         except Exception as e:
@@ -234,8 +230,8 @@ async def run_bot(
         print(f"\n>>> [FORWARD CALL] Forwarding call {call_uuid} due to: {reason}\n")
         logger.info(f"Forwarding call {call_uuid} to support agent. Reason: {reason}")
 
-        if db_id:
-            db_set_forwarded(db_id, True)
+        nonlocal call_forwarded
+        call_forwarded = True
 
         if call_uuid and host:
             async def transfer_plivo_call():
@@ -297,7 +293,7 @@ async def run_bot(
     @user_aggregator.event_handler("on_user_turn_message_added")
     async def on_user_turn_message_added(aggregator, message: UserTurnMessageAddedMessage):
         user_transcript = message.content
-        if user_transcript and db_id:
+        if user_transcript:
             call_transcript.append({
                 "role": "user",
                 "text": user_transcript,
@@ -307,7 +303,7 @@ async def run_bot(
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
         agent_transcript = message.content
-        if agent_transcript and db_id:
+        if agent_transcript:
             call_transcript.append({
                 "role": "agent",
                 "text": agent_transcript,
@@ -353,10 +349,17 @@ async def run_bot(
         await runner.run()
     finally:
         duration = int(time.time() - start_time)
-        if db_id:
-            db_set_duration(db_id, duration)
-            if call_transcript:
-                db_set_transcript(db_id, call_transcript)
+        time_of_call = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
+        db_id = db_save_call(
+            phone_number=caller_number or "Unknown",
+            call_uuid=call_uuid or "",
+            time_of_call=time_of_call,
+            duration=duration,
+            order_number=order_number,
+            transcript=call_transcript,
+            call_forwarded=call_forwarded,
+        )
+        print(f"Call saved to MongoDB on disconnect. DB ID: {db_id}")
 
 
 # ─── Entry Points ──────────────────────────────────────────────────────────────

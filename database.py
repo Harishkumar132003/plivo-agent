@@ -59,6 +59,44 @@ def db_create_call(phone_number: str, call_uuid: str = "") -> str:
         print(f"Failed to create call in MongoDB: {e}")
         return ""
 
+def db_save_call(
+    phone_number: str,
+    call_uuid: str = "",
+    time_of_call: str = None,
+    duration: int = 0,
+    order_number: str = "",
+    transcript: list = None,
+    call_forwarded: bool = False,
+    forwarded_transcript: str = "",
+    speaking_time: float = 0.0
+) -> str:
+    """Creates and saves a complete call record in MongoDB at the end of the call."""
+    try:
+        if not time_of_call:
+            time_of_call = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if transcript is None:
+            transcript = []
+        
+        costs = calculate_call_cost(duration, speaking_time)
+        db = get_db()
+        res = db.calls.insert_one({
+            "phone_number": phone_number,
+            "call_uuid": call_uuid,
+            "time_of_call": time_of_call,
+            "duration": duration,
+            "order_number": order_number,
+            "transcript": transcript,
+            "call_forwarded": call_forwarded,
+            "forwarded_transcript": forwarded_transcript,
+            "plivo_cost": costs["plivo_cost"],
+            "gemini_cost": costs["gemini_cost"],
+            "total_cost": costs["total_cost"]
+        })
+        return str(res.inserted_id)
+    except PyMongoError as e:
+        print(f"Failed to save call in MongoDB: {e}")
+        return ""
+
 def db_update_order(db_id: str, order_number: str):
     """Updates the order number for a call."""
     if not db_id:
