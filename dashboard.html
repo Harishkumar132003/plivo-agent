@@ -1126,12 +1126,12 @@
           if (currentSearch) params.append("search", currentSearch);
 
           if (currentTypeFilter && currentTypeFilter !== "all")
-            params.append("filter_type", currentTypeFilter);
+            params.append("type_filter", currentTypeFilter);
 
           if (currentOrderFilter && currentOrderFilter !== "all")
-            params.append("order", currentOrderFilter);
+            params.append("order_filter", currentOrderFilter);
 
-          const apiUrl = `${window.location.origin}/api/calls?${params.toString()}`;
+          const apiUrl = `http://localhost:7860/api/calls?${params.toString()}`;
 
           console.log(apiUrl); // Debug
 

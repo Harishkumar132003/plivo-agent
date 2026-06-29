@@ -524,28 +524,28 @@ async def logout_api(authorization: str = Header(None)):
 # ─── Dashboard Data Endpoints ──────────────────────────────────────────────────
 
 @app.get("/api/calls")
-def db_get_all_calls(search_term=None, type_filter="all", order_filter="all"):
-    print("type_filter =", type_filter)
-    print("order_filter =", order_filter)
+def get_calls_api(
+    search: str | None = None,
+    search_term: str | None = None,
+    type: str | None = None,
+    type_filter: str | None = None,
+    filter_type: str | None = None,
+    order: str | None = None,
+    order_filter: str | None = None,
+    username: str = Depends(get_current_user),
+):
+    resolved_search = search_term or search
+    resolved_type = type_filter or filter_type or type or "all"
+    resolved_order = order_filter or order or "all"
 
-    query = {}
+    print("type_filter =", resolved_type)
+    print("order_filter =", resolved_order)
 
-    if type_filter == "forwarded":
-        query["call_forwarded"] = True
-    elif type_filter == "direct":
-        query["call_forwarded"] = False
-
-    if order_filter == "with-order":
-        query["order_number"] = {"$ne": ""}
-    elif order_filter == "no-order":
-        query["order_number"] = ""
-
-    print("Mongo Query:", query)
-
-    docs = list(get_db().calls.find(query))
-    print("Matched:", len(docs))
-
-    return docs
+    return db_get_all_calls(
+        search_term=resolved_search,
+        type_filter=resolved_type,
+        order_filter=resolved_order,
+    )
 
 class SettingsUpdateRequest(BaseModel):
     welcome_message: str

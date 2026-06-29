@@ -7,6 +7,7 @@ import {
   BarChart2,
   Settings,
 } from "lucide-react";
+import { getApiUrl } from "../api";
 
 export const Login = ({ onLoginSuccess }) => {
   const [username, setUsername] = useState("");
@@ -20,7 +21,7 @@ export const Login = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/login", {
+      const response = await fetch(getApiUrl("/api/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),

@@ -7,6 +7,7 @@ import { SettingsForm } from "./components/SettingsForm";
 import { TranscriptModal } from "./components/TranscriptModal";
 import { Login } from "./components/Login";
 import { ToastContainer } from "./components/Toast";
+import { getApiUrl } from "./api";
 import "./App.scss";
 
 function App() {
@@ -85,7 +86,7 @@ function App() {
   // Logout Handler
   const handleLogout = async () => {
     try {
-      await fetch("/api/logout", { method: "POST", headers: getAuthHeaders() });
+      await fetch(getApiUrl("/api/logout"), { method: "POST", headers: getAuthHeaders() });
     } catch (e) {
       console.error("Logout request error:", e);
     }
@@ -120,14 +121,14 @@ function App() {
       }
 
       if (typeFilter !== "all") {
-        queryParams.append("filter_type", typeFilter);
+        queryParams.append("type_filter", typeFilter);
       }
 
       if (orderFilter !== "all") {
-        queryParams.append("order", orderFilter);
+        queryParams.append("order_filter", orderFilter);
       }
 
-      const url = `/api/calls?${queryParams.toString()}`;
+      const url = getApiUrl(`/api/calls?${queryParams.toString()}`);
 
       console.log("Type Filter:", typeFilter);
       console.log("Order Filter:", orderFilter);
@@ -169,7 +170,7 @@ function App() {
   const fetchSettings = async () => {
     if (!token) return;
     try {
-      const response = await fetch("/api/settings", {
+      const response = await fetch(getApiUrl("/api/settings"), {
         headers: getAuthHeaders(),
       });
       if (response.status === 401) {
@@ -188,7 +189,7 @@ function App() {
   const handleSaveSettings = async (newSettings) => {
     if (!token) return false;
     try {
-      const response = await fetch("/api/settings", {
+      const response = await fetch(getApiUrl("/api/settings"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(newSettings),
@@ -212,7 +213,7 @@ function App() {
       if (token) {
         setIsVerifying(true);
         try {
-          const response = await fetch("/api/verify-token", {
+          const response = await fetch(getApiUrl("/api/verify-token"), {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (response.status === 401) {
