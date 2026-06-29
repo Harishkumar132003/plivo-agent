@@ -1,0 +1,15 @@
+.env
+.env.*
+*.pyc
+__pycache__/
+.venv/
+frontend/node_modules/
+frontend/dist/
+.git/
+.gitignore
+*.md
+run.bat
+run_all.py
+pcc-deploy.toml
+pyrightconfig.json
+Dockerfile
