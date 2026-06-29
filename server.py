@@ -194,7 +194,6 @@ async def start_inbound_call(
 
     websocket_url = get_websocket_url(host, body_data if body_data else None)
     xml = build_stream_xml(websocket_url)
-    print(f"Returning XML for inbound call: {xml}")
     return Response(content=xml, media_type="application/xml")
 
 
@@ -309,7 +308,6 @@ async def outbound_answer_webhook(
 
     websocket_url = get_websocket_url(host, body_data)
     xml = build_stream_xml(websocket_url)
-    print(f"Returning XML for outbound answer: {xml}")
     return Response(content=xml, media_type="application/xml")
 
 
@@ -347,7 +345,6 @@ async def forward_call_webhook(
     <Number>{forward_number}</Number>
   </Dial>
 </Response>"""
-    print(f"Returning XML for forwarding call to {forward_number} with transcription: {xml}")
     return Response(content=xml, media_type="application/xml")
 
 
@@ -397,19 +394,14 @@ async def websocket_endpoint(
 ):
     """Handle WebSocket connections from Plivo (both inbound and outbound calls)."""
     await websocket.accept()
-    print("WebSocket connection accepted")
-    print(f"Query params — body: {body[:50] + '...' if body and len(body) > 50 else body}, serviceHost: {serviceHost}")
 
     body_data = {}
     if body:
         try:
             decoded_json = base64.b64decode(body).decode("utf-8")
             body_data = json.loads(decoded_json)
-            print(f"Decoded body data: {body_data}")
         except Exception as e:
-            print(f"Error decoding body parameter: {e}")
-    else:
-        print("No body parameter received")
+            pass
 
     try:
         from pipecat.runner.types import WebSocketRunnerArguments
@@ -420,7 +412,6 @@ async def websocket_endpoint(
         call_uuid = str(body_data.get("call_uuid")) if body_data.get("call_uuid") else None
         from_number = str(body_data.get("from")) if body_data.get("from") else None
         host = websocket.headers.get("x-forwarded-host") or websocket.headers.get("host") or websocket.url.netloc
-        print(f"WebSocket host detected: {host}")
         await bot(runner_args, call_uuid=call_uuid, host=host, caller_number=from_number)
 
     except Exception as e:
@@ -537,9 +528,6 @@ def get_calls_api(
     resolved_search = search_term or search
     resolved_type = type_filter or filter_type or type or "all"
     resolved_order = order_filter or order or "all"
-
-    print("type_filter =", resolved_type)
-    print("order_filter =", resolved_order)
 
     return db_get_all_calls(
         search_term=resolved_search,

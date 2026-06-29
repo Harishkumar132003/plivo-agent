@@ -1,17 +1,3 @@
-#
-# Copyright (c) 2026, Daily
-#
-# SPDX-License-Identifier: BSD 2-Clause License
-#
-
-"""
-Plivo AI Voice Agent
-- Greets the caller with an AI voice introduction
-- Asks for the customer's Order ID
-- Calls the Zoho API to fetch order status via LLM function calling
-- Reads out whether the order has been dispatched
-"""
-
 import asyncio
 import os
 import time
@@ -33,7 +19,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnMessageAddedMessage,
 )
 from pipecat.runner.types import RunnerArguments
-from pipecat.runner.utils import create_transport
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.services.google.gemini_live.llm import (
     GeminiLiveLLMService,
@@ -54,6 +39,20 @@ from database import (
 
 load_dotenv()
 
+# ── Loguru ──────────────────────────────────────────────────────────────────────
+logger.remove()
+logger.add(
+    lambda msg: print(msg, end=""),
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
+    level="INFO",
+    filter=lambda record: (
+        record["name"].startswith("__main__")
+        or record["name"] == "__mp_main__"
+        or "bot" in record["name"]
+        or record["level"].no >= 30
+    ),
+    colorize=True,
+)
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -63,8 +62,24 @@ ZOHO_API_URL: str = os.getenv(
 )
 ZOHO_PUBLIC_KEY: str = os.getenv("ZOHO_API_PUBLIC_KEY", "FjhK5xdE8XD57tqm3Z0SeZYke")
 
-# Greeting trigger injected as the first user turn so Gemini Live speaks immediately on connect.
+# Injected as first user turn — tells Gemini to greet immediately
 CONNECT_GREETING_TRIGGER = "[call connected] Greet the caller immediately."
+
+# gemini-2.5-flash-native-audio-latest: ta-IN / ml-IN cause error 1007.
+# STT is inherently multilingual — pass None to skip set_language() for those.
+LANG_MAP = {
+    "english":   (Language.EN_US, "en-US", "English"),
+    "tamil":     (None,           "ta-IN", "Tamil"),
+    "malayalam": (None,           "ml-IN", "Malayalam"),
+}
+
+# ─── Transcript printer ────────────────────────────────────────────────────────
+
+def print_transcript_line(role: str, text: str, timestamp: str):
+    if role == "user":
+        print(f"\n  [{timestamp}] 👤 USER  : {text}")
+    else:
+        print(f"  [{timestamp}] 🤖 AGENT : {text}\n")
 
 # ─── Bot Pipeline ──────────────────────────────────────────────────────────────
 
@@ -75,48 +90,46 @@ async def run_bot(
     host: str | None = None,
     caller_number: str | None = None,
 ) -> None:
-    """Set up and run the Pipecat pipeline."""
 
     state = {
-        "language": "english"
+        "language": "english",
+        "switch_in_progress": False,
     }
 
-    # ── Load all agent config from DB (bypass cache for each new call) ──────────
     settings = db_get_settings(bypass_cache=True)
     welcome_message = settings.get("welcome_message") or DEFAULT_WELCOME_MESSAGE
     system_prompt_template = settings.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
-    forward_to_number = settings.get("forward_to_number") or ""
-
-    # Inject the greeting into the system prompt placeholder
     resolved_system_prompt = system_prompt_template.replace("{welcome_message}", welcome_message)
-
-    print(f">>> [BOT CONFIG] welcome_message: {welcome_message[:60]}...")
-    print(f">>> [BOT CONFIG] forward_to_number: {forward_to_number}")
-    print(f">>> [BOT CONFIG] system_prompt (first 80 chars): {resolved_system_prompt[:80]}...")
 
     start_time = time.time()
     call_transcript = []
     order_number = ""
     call_forwarded = False
 
-    # Placeholders for nested function access
     llm: GeminiLiveLLMService | None = None
     context: LLMContext | None = None
+    worker: PipelineWorker | None = None
+
+    # Set when Gemini Live session is confirmed ready — used to fire greeting at the
+    # exact right moment without any blind sleep.
+    llm_ready = asyncio.Event()
+
+    # ─── TOOLS ────────────────────────────────────────────────────────────────
 
     @tool_options(cancel_on_interruption=False, timeout_secs=15)
     async def check_order_status(params: FunctionCallParams, order_id: str) -> None:
         """Check the current status of a customer's order from our system.
 
-        IMPORTANT: Only call this function AFTER the customer has spoken their 4-digit Order ID in their most recent message. Never call this speculatively or before you have asked for and received the Order ID.
+        IMPORTANT: Only call this function AFTER the customer has spoken their 4-digit Order ID
+        in their most recent message. Never call this speculatively.
 
         Args:
-            order_id: The 4-digit numeric order ID spoken by the customer, e.g. "6180". Convert spoken numbers to digits before calling.
+            order_id: The 4-digit numeric order ID spoken by the customer, e.g. "6180".
+                      Convert spoken numbers to digits before calling.
         """
-        print(f"\n>>> [ZOHO API] Checking status for order ID: {order_id}")
-        logger.info(f"Calling Zoho API for order ID: {order_id}")
+        logger.info(f"Zoho lookup → order_id={order_id}")
 
         url = f"{ZOHO_API_URL}?publickey={ZOHO_PUBLIC_KEY}"
-        headers = {"Content-Type": "application/json"}
         payload = {"order_id": order_id.strip()}
 
         try:
@@ -124,144 +137,153 @@ async def run_bot(
                 async with session.post(
                     url,
                     json=payload,
-                    headers=headers,
+                    headers={"Content-Type": "application/json"},
                     timeout=aiohttp.ClientTimeout(total=12),
                 ) as resp:
                     data = await resp.json(content_type=None)
-                    print(f"\n>>> [ZOHO API RESPONSE] Status: {resp.status} | Data: {data}\n")
-                    logger.info(f"Zoho API response for {order_id}: {data}")
 
             status = data.get("result", "")
+            logger.info(f"Zoho response → order={order_id} status={status!r}")
             nonlocal order_number
             order_number = order_id.strip()
             await params.result_callback({"status": status})
 
         except Exception as e:
-            print(f"\n>>> [ZOHO API ERROR] Failed for order {order_id}: {e}\n")
             logger.error(f"Zoho API error for {order_id}: {e}")
             await params.result_callback({"error": "Failed to retrieve order status"})
 
-    @tool_options(cancel_on_interruption=False, timeout_secs=5)
+    @tool_options(cancel_on_interruption=False, timeout_secs=8)
     async def set_language(params: FunctionCallParams, language: str) -> None:
-        """Switch the conversation language. Call this automatically as soon as you detect the customer speaking Tamil or Malayalam — do NOT wait for them to explicitly ask. Also call this if the customer asks to switch language mid-call.
+        """Switch the conversation language. Call this automatically as soon as you detect
+        the customer speaking Tamil or Malayalam. Also call if they explicitly request a switch.
 
         Args:
-            language: The detected or requested language. Must be one of: "english", "tamil", or "malayalam".
+            language: One of "english", "tamil", or "malayalam".
         """
-        print(f"\n>>> [SET LANGUAGE] Switching to: {language}")
-        logger.info(f"Switching language to: {language}")
-
-        lang_map = {
-            "english": (Language.EN_US, "en-US"),
-            "tamil": (Language.TA_IN, "ta-IN"),
-            "malayalam": (Language.ML_IN, "ml-IN"),
-        }
-
         lang_lower = language.lower().strip()
-        if lang_lower in lang_map:
-            stt_lang, tts_lang = lang_map[lang_lower]
-            state["language"] = lang_lower
 
-            # Update settings on the Gemini Live LLM service
-            if llm:
-                llm.set_language(stt_lang)
+        if state["switch_in_progress"]:
+            logger.warning(f"[LANG] Switch in progress — skipping duplicate for '{lang_lower}'")
+            await params.result_callback("Switch already in progress.")
+            return
 
-            # Restrict the LLM strictly to the chosen language
+        if state["language"] == lang_lower:
+            await params.result_callback(f"Already in {lang_lower}.")
+            return
+
+        if lang_lower not in LANG_MAP:
+            await params.result_callback(f"Unsupported language: {language}.")
+            return
+
+        state["switch_in_progress"] = True
+        stt_lang, tts_lang, lang_label = LANG_MAP[lang_lower]
+        logger.info(f"[LANG] {state['language']} → {lang_lower}")
+
+        try:
+            # Inject a system-level instruction so the model switches output language
             if context is not None:
                 context.add_message({
                     "role": "system",
                     "content": (
-                        f"The language is now set to {language.upper()} ({tts_lang}). "
-                        f"From now on, you MUST converse ONLY in {language.upper()} using its script. "
-                        "Do NOT respond in English, Tamil, Malayalam, or any other language "
-                        "except the selected one. Keep this rule absolute. "
-                        "Do NOT say that you are switching or mention the language name in your response. "
-                        "Just speak in the selected language. "
-                        "If the user explicitly requested this switch, you can confirm it once in the target language. "
-                        "Otherwise, do not mention the language change at all."
-                    )
+                        f"LANGUAGE IS NOW {lang_label.upper()} ({tts_lang}). "
+                        f"Speak ONLY in {lang_label} using its native script from this point. "
+                        "Do NOT use any other language. "
+                        "Do NOT mention the language change unless the customer explicitly asked — "
+                        "if they did, confirm once in the new language only, then continue naturally."
+                    ),
                 })
 
-            await params.result_callback(f"Language set to {language} successfully.")
+            # Only call set_language for codes the model actually accepts (en-US only).
+            # Tamil / Malayalam STT works automatically — calling set_language with those
+            # codes triggers error 1007 and crashes the session.
+            if llm and stt_lang is not None:
+                llm.set_language(stt_lang)
 
-            # Reconnect the Gemini Live session to apply the language change immediately
-            if llm:
-                logger.info(f"Reconnecting Gemini session for language: {stt_lang}")
-                await llm._reconnect()
-        else:
-            await params.result_callback(f"Unsupported language: {language}.")
+            state["language"] = lang_lower
+            await params.result_callback(f"Language set to {lang_label}.")
+
+            # Push updated context to the live session.
+            # NO _reconnect() — reconnecting mid-call tears down the Gemini WS and
+            # causes audio stutter / gaps. The native-audio model handles multilingual
+            # output via the system prompt alone; a reconnect is not needed.
+            async def flush_context():
+                try:
+                    await asyncio.sleep(0.05)
+                    if worker and context:
+                        await worker.queue_frames([
+                            LLMMessagesUpdateFrame(messages=context.messages),
+                        ])
+                        logger.info(f"[LANG] Context flushed → {lang_label}")
+                except Exception as ex:
+                    logger.error(f"[LANG] flush_context error: {ex}")
+                finally:
+                    state["switch_in_progress"] = False
+
+            asyncio.create_task(flush_context())
+
+        except Exception as e:
+            logger.error(f"[LANG] set_language error: {e}")
+            state["switch_in_progress"] = False
+            await params.result_callback("Language switch failed.")
 
     @tool_options(cancel_on_interruption=False, timeout_secs=5)
     async def end_conversation(params: FunctionCallParams) -> None:
-        """Hang up the phone call immediately. Call this function as soon as the user says thank you, says no more help is needed, or says goodbye to end the conversation."""
-        print(f"\n>>> [END CONVERSATION] Hanging up call {call_uuid}...\n")
-        logger.info(f"Ending conversation and closing call {call_uuid}")
+        """Hang up the call. Call as soon as the user says goodbye or no more help needed."""
+        logger.info(f"[END] Hanging up call {call_uuid}")
 
-        # Call Plivo API to hang up the call after a short delay
-        if call_uuid:
-            async def hangup_plivo_call():
-                await asyncio.sleep(3.0) # let Gemini finish playing its goodbye sentence
+        async def _hangup():
+            await asyncio.sleep(3.0)
+            if call_uuid:
                 try:
-                    auth_id = os.getenv("PLIVO_AUTH_ID")
-                    auth_token = os.getenv("PLIVO_AUTH_TOKEN")
-                    client = plivo.RestClient(auth_id, auth_token)
+                    client = plivo.RestClient(
+                        os.getenv("PLIVO_AUTH_ID"),
+                        os.getenv("PLIVO_AUTH_TOKEN"),
+                    )
                     client.calls.hangup(call_uuid=call_uuid)
-                    print(f"Plivo call {call_uuid} hung up successfully via REST API.")
                 except Exception as ex:
-                    print(f"Error hanging up call via Plivo API: {ex}")
+                    logger.error(f"[END] Hangup error: {ex}")
+            if worker:
                 await worker.cancel()
 
-            asyncio.create_task(hangup_plivo_call())
-        else:
-            async def cancel_worker_delayed():
-                await asyncio.sleep(3.0)
-                await worker.cancel()
-            asyncio.create_task(cancel_worker_delayed())
-
-        await params.result_callback("Goodbye spoken. Call hanging up.")
+        asyncio.create_task(_hangup())
+        await params.result_callback("Call ending.")
 
     @tool_options(cancel_on_interruption=False, timeout_secs=15)
     async def forward_call(params: FunctionCallParams, reason: str = "") -> None:
-        """Forward the call to a customer support agent. Call this immediately if the customer's query/intent is NOT about checking order status, or if they ask to speak to a human, or have any other query.
+        """Forward the call to a support agent. Call immediately for anything other than
+        order status, or if the customer asks to speak to a human.
 
         Args:
-            reason: The reason for forwarding the call.
+            reason: Short reason for the transfer.
         """
-        print(f"\n>>> [FORWARD CALL] Forwarding call {call_uuid} due to: {reason}\n")
-        logger.info(f"Forwarding call {call_uuid} to support agent. Reason: {reason}")
-
+        logger.info(f"[FORWARD] Transferring call. Reason: {reason}")
         nonlocal call_forwarded
         call_forwarded = True
 
-        if call_uuid and host:
-            async def transfer_plivo_call():
-                await asyncio.sleep(4.0) # Let Gemini finish speaking the transfer message
+        async def _transfer():
+            await asyncio.sleep(4.0)
+            if call_uuid and host:
                 try:
-                    auth_id = os.getenv("PLIVO_AUTH_ID")
-                    auth_token = os.getenv("PLIVO_AUTH_TOKEN")
-                    client = plivo.RestClient(auth_id, auth_token)
-                    forward_url = f"https://{host}/forward-call"
-                    logger.info(f"Transferring call {call_uuid} to {forward_url}")
+                    client = plivo.RestClient(
+                        os.getenv("PLIVO_AUTH_ID"),
+                        os.getenv("PLIVO_AUTH_TOKEN"),
+                    )
                     response = client.calls.transfer(
                         call_uuid=call_uuid,
                         legs="aleg",
-                        aleg_url=forward_url,
-                        aleg_method="POST"
+                        aleg_url=f"https://{host}/forward-call",
+                        aleg_method="POST",
                     )
-                    logger.info(f"Plivo call {call_uuid} transferred/forwarded successfully. Response: {response}")
+                    logger.info(f"[FORWARD] Transfer done: {response}")
                 except Exception as ex:
-                    logger.error(f"Error transferring call via Plivo API: {ex}")
+                    logger.error(f"[FORWARD] Transfer error: {ex}")
+            if worker:
                 await worker.cancel()
 
-            asyncio.create_task(transfer_plivo_call())
-        else:
-            logger.warning("Cannot forward call: call_uuid or host is not set.")
-            async def cancel_worker_delayed():
-                await asyncio.sleep(4.0)
-                await worker.cancel()
-            asyncio.create_task(cancel_worker_delayed())
+        asyncio.create_task(_transfer())
+        await params.result_callback("Transferring now.")
 
-        await params.result_callback("Call forwarding initiated.")
+    # ─── CONTEXT + LLM ────────────────────────────────────────────────────────
 
     context = LLMContext(
         messages=[],
@@ -272,11 +294,12 @@ async def run_bot(
         api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "",
         settings=GeminiLiveLLMService.Settings(
             model="models/gemini-2.5-flash-native-audio-latest",
-            voice="Sulafat",  # Charon is more adaptive to accent instructions via system prompt
-            language=Language.EN_US,  # en-IN is unsupported by native-audio model; accent via system prompt
+            voice="Sulafat",
+            language=Language.EN_US,
             system_instruction=resolved_system_prompt,
             vad=GeminiVADParams(
-                silence_duration_ms=500,
+                # Slightly shorter silence window — reduces cut-off lag between turns
+                silence_duration_ms=400,
                 start_sensitivity=StartSensitivity.START_SENSITIVITY_HIGH,
                 end_sensitivity=EndSensitivity.END_SENSITIVITY_HIGH,
             ),
@@ -285,71 +308,112 @@ async def run_bot(
         tools=[check_order_status, set_language, end_conversation, forward_call],
     )
 
+    # ── Signal greeting the instant the Gemini Live WS session is open ─────────
+    # on_connected fires from inside GeminiLiveLLMService once the WebSocket
+    # handshake with Google is complete — this is the earliest safe moment to send.
+    @llm.event_handler("on_connected")
+    async def on_llm_connected(service):
+        logger.info("[LLM] Gemini Live session ready")
+        llm_ready.set()
+
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        realtime_service_mode=True
+        realtime_service_mode=True,
     )
+
+    # ─── TRANSCRIPT ───────────────────────────────────────────────────────────
 
     @user_aggregator.event_handler("on_user_turn_message_added")
     async def on_user_turn_message_added(aggregator, message: UserTurnMessageAddedMessage):
-        user_transcript = message.content
-        if user_transcript:
-            call_transcript.append({
-                "role": "user",
-                "text": user_transcript,
-                "timestamp": datetime.now().strftime("%H:%M:%S")
-            })
+        text = message.content
+        if text and text != CONNECT_GREETING_TRIGGER:
+            ts = datetime.now().strftime("%H:%M:%S")
+            call_transcript.append({"role": "user", "text": text, "timestamp": ts})
+            print_transcript_line("user", text, ts)
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
-        agent_transcript = message.content
-        if agent_transcript:
-            call_transcript.append({
-                "role": "agent",
-                "text": agent_transcript,
-                "timestamp": datetime.now().strftime("%H:%M:%S")
-            })
+        text = message.content
+        if text:
+            ts = datetime.now().strftime("%H:%M:%S")
+            call_transcript.append({"role": "agent", "text": text, "timestamp": ts})
+            print_transcript_line("agent", text, ts)
 
-    pipeline = Pipeline(
-        [
-            transport.input(),       # Audio in from Plivo WebSocket
-            user_aggregator,         # Accumulate user turn
-            llm,                     # GeminiLiveLLMService (LLM + STT + TTS)
-            transport.output(),      # Audio out to Plivo WebSocket
-            assistant_aggregator,    # Accumulate assistant turn
-        ]
-    )
+    # ─── PIPELINE ─────────────────────────────────────────────────────────────
+
+    pipeline = Pipeline([
+        transport.input(),
+        user_aggregator,
+        llm,
+        transport.output(),
+        assistant_aggregator,
+    ])
 
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
             audio_in_sample_rate=8000,
             audio_out_sample_rate=8000,
-            enable_metrics=True,
-            enable_usage_metrics=True,
+            enable_metrics=False,
+            enable_usage_metrics=False,
         ),
     )
 
+    # ─── TRANSPORT EVENTS ─────────────────────────────────────────────────────
+
     @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):  # noqa: ANN001
-        """Kick off the conversation with an AI greeting when the call connects."""
-        logger.info("Client connected — triggering immediate greeting")
+    async def on_client_connected(transport, client):
+        logger.info(f"[CONNECT] Call connected | uuid={call_uuid} | caller={caller_number}")
+        print(f"\n{'─'*60}")
+        print(f"  📞 NEW CALL")
+        print(f"  Caller  : {caller_number or 'Unknown'}")
+        print(f"  UUID    : {call_uuid or 'N/A'}")
+        print(f"  Time    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'─'*60}\n")
+
+        # Pre-load the greeting trigger into context immediately.
         context.add_message({"role": "user", "content": CONNECT_GREETING_TRIGGER})
-        await worker.queue_frames([LLMRunFrame()])
-        logger.info("Greeting frames queued — agent should speak now")
+
+        # Wait for Gemini Live WS to be ready (llm_ready set by on_llm_connected),
+        # then fire — no blind sleep, no polling, zero unnecessary delay.
+        async def fire_greeting_when_ready():
+            try:
+                await asyncio.wait_for(llm_ready.wait(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("[CONNECT] LLM ready timeout — firing greeting anyway")
+            if worker:
+                await worker.queue_frames([LLMRunFrame()])
+                logger.info("[CONNECT] Greeting fired immediately after LLM ready")
+
+        asyncio.create_task(fire_greeting_when_ready())
 
     @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client):  # noqa: ANN001
-        logger.info("Client disconnected")
-        await worker.cancel()
+    async def on_client_disconnected(transport, client):
+        logger.info("[DISCONNECT] Client disconnected")
+        if worker:
+            await worker.cancel()
+
+    # ─── RUN ──────────────────────────────────────────────────────────────────
 
     runner = WorkerRunner(handle_sigint=handle_sigint)
     await runner.add_workers(worker)
+
+    print(f"  🟢 Pipeline ready | Waiting for call...\n")
+
     try:
         await runner.run()
     finally:
         duration = int(time.time() - start_time)
         time_of_call = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
+
+        print(f"\n{'─'*60}")
+        print(f"  📋 CALL SUMMARY")
+        print(f"  Duration : {duration}s")
+        print(f"  Language : {state['language']}")
+        print(f"  Order    : {order_number or 'None'}")
+        print(f"  Forwarded: {call_forwarded}")
+        print(f"{'─'*60}\n")
+
         db_id = db_save_call(
             phone_number=caller_number or "Unknown",
             call_uuid=call_uuid or "",
@@ -359,10 +423,10 @@ async def run_bot(
             transcript=call_transcript,
             call_forwarded=call_forwarded,
         )
-        print(f"Call saved to MongoDB on disconnect. DB ID: {db_id}")
+        logger.info(f"[DB] Saved | id={db_id} | duration={duration}s")
 
 
-# ─── Entry Points ──────────────────────────────────────────────────────────────
+# ─── Entry Point ───────────────────────────────────────────────────────────────
 
 async def bot(
     runner_args: RunnerArguments,
@@ -370,26 +434,22 @@ async def bot(
     host: str | None = None,
     caller_number: str | None = None,
 ) -> None:
-    """Main bot entry point compatible with Pipecat Cloud."""
 
     import json
     from pipecat.transports.websocket.fastapi import FastAPIWebsocketTransport
-    from pipecat.serializers.plivo import PlivoFrameSerializer
 
     websocket = runner_args.websocket
 
-    # Receive the first message (handshake/start message) from Plivo WebSocket
     try:
         first_msg_raw = await websocket.receive_text()
-        logger.info(f"Received Plivo raw handshake message: {first_msg_raw}")
         first_msg = json.loads(first_msg_raw)
         start_data = first_msg.get("start", {})
         stream_id = start_data.get("streamId")
         call_id = start_data.get("callId")
-        logger.info(f"Parsed Plivo start handshake: stream_id={stream_id}, call_id={call_id}")
+        logger.info(f"[HANDSHAKE] stream_id={stream_id} call_id={call_id}")
     except Exception as e:
-        logger.error(f"Failed to receive/parse Plivo handshake: {e}")
-        raise e
+        logger.error(f"[HANDSHAKE] Failed: {e}")
+        raise
 
     params = FastAPIWebsocketParams(
         audio_in_enabled=True,
@@ -400,27 +460,23 @@ async def bot(
             call_id=call_id,
             auth_id=os.getenv("PLIVO_AUTH_ID", ""),
             auth_token=os.getenv("PLIVO_AUTH_TOKEN", ""),
-        )
+        ),
     )
 
     transport = FastAPIWebsocketTransport(websocket=websocket, params=params)
 
-    # Disable automatic call hangup on pipeline cancel/end. This prevents Plivo from
-    # immediately terminating the call when the WebSocket finishes, allowing our
-    # REST API transfer/forwarding logic to succeed and bridge the caller.
-    transport_params_obj = getattr(transport, "_params", None)
-    if transport_params_obj and hasattr(transport_params_obj, "serializer"):
-        serializer = getattr(transport_params_obj, "serializer", None)
-        if serializer:
-            serializer_params = getattr(serializer, "_params", None)
-            if serializer_params and hasattr(serializer_params, "auto_hang_up"):
-                setattr(serializer_params, "auto_hang_up", False)
-                logger.info("Disabled serializer auto_hang_up to allow call transfer/forwarding to succeed.")
+    # Disable auto hangup so call transfer succeeds before WebSocket closes
+    try:
+        serializer = transport._params.serializer
+        if hasattr(serializer._params, "auto_hang_up"):
+            serializer._params.auto_hang_up = False
+            logger.info("[SERIALIZER] auto_hang_up disabled")
+    except AttributeError:
+        pass
 
     await run_bot(transport, runner_args.handle_sigint, call_uuid, host, caller_number)
 
 
 if __name__ == "__main__":
     from pipecat.runner.run import main
-
     main()

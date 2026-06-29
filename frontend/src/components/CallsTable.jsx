@@ -222,7 +222,10 @@ export const CallsTable = ({
                         <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
                           ${(call.total_cost ?? 0).toFixed(2)}
                         </span>
-                        <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }} title="Plivo / Gemini Live">
+                        <span 
+                          style={{ fontSize: "0.72rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }} 
+                          title={`Plivo: $${(call.plivo_cost ?? 0).toFixed(2)} | Gemini: $${(call.gemini_cost ?? 0).toFixed(2)} (${call.gemini_input_tokens ?? 0} In / ${call.gemini_output_tokens ?? 0} Out tokens)`}
+                        >
                           P: ${(call.plivo_cost ?? 0).toFixed(2)} | G: ${(call.gemini_cost ?? 0).toFixed(2)}
                         </span>
                       </div>
