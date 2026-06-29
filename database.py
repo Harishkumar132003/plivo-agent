@@ -426,20 +426,23 @@ def db_create_user(username: str, password: str) -> bool:
         return False
 
 def db_seed_default_user():
-    """Seeds default admin/admin user if no users exist, and seeds demouser@gmail.com if missing."""
+    """Seeds default admin user if no users exist, and seeds demouser@gmail.com if missing."""
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin")
+    demo_password = os.getenv("DEMO_USER_PASSWORD", "changeme")
+    demo_username = os.getenv("DEMO_USER_EMAIL", "demouser@gmail.com")
+
     try:
         db = get_db()
         count = db.users.count_documents({})
         if count == 0:
-            print("No users found in database. Seeding default 'admin' user with password 'admin'...")
-            db_create_user("admin", "admin")
+            print("No users found in database. Seeding default 'admin' user...")
+            db_create_user("admin", admin_password)
             print("Seeded default 'admin' user successfully.")
-        
-        # Check and seed demouser@gmail.com
-        if not db.users.find_one({"username": "demouser@gmail.com"}):
-            print("Seeding 'demouser@gmail.com' user with password '12345678'...")
-            db_create_user("demouser@gmail.com", "12345678")
-            print("Seeded 'demouser@gmail.com' successfully.")
+
+        if not db.users.find_one({"username": demo_username}):
+            print(f"Seeding '{demo_username}' user...")
+            db_create_user(demo_username, demo_password)
+            print(f"Seeded '{demo_username}' successfully.")
     except PyMongoError as e:
         print(f"Failed to seed default user: {e}")
 
