@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2025, Daily
+# Copyright (c) 2026, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -14,12 +14,16 @@ Plivo XML Server
 import base64
 import json
 import os
+from contextlib import asynccontextmanager
 
 import plivo
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
+from starlette import status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import Response
 
@@ -28,10 +32,28 @@ load_dotenv()
 
 # Import bot at startup to pre-warm VAD and libraries before any call comes in
 from bot import bot
+from database import (
+    db_check_user_credentials,
+    db_create_session,
+    db_delete_session,
+    db_get_all_calls,
+    db_set_forwarded_transcript_by_uuid,
+    db_verify_session,
+    init_db,
+    db_get_settings,
+    db_update_settings,
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
 
 app = FastAPI(
     title="Plivo AI Voice Agent",
     description="AI Voice Agent for Order Status — powered by Pipecat + Plivo",
+    lifespan=lifespan,
 )
 
 # Allow cross-origin requests (useful for frontend triggers)
@@ -41,6 +63,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve built React frontend assets if compiled
+dist_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+assets_path = os.path.join(dist_path, "assets")
+
+if os.path.exists(assets_path):
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -55,7 +84,7 @@ def get_plivo_client() -> plivo.RestClient:
     return plivo.RestClient(auth_id, auth_token)
 
 
-def get_websocket_url(host: str, body_data: dict = None) -> str:
+def get_websocket_url(host: str, body_data: dict | None = None) -> str:
     """Construct WebSocket URL based on environment variables with query parameters."""
     env = os.getenv("ENV", "local").lower()
 
@@ -120,6 +149,11 @@ async def start_inbound_call(
     Configure this URL as the Answer URL in your Plivo application/number.
     Example: https://your-ngrok-url.ngrok.io/
     """
+    # If the user opens the root URL in a browser, redirect them to the dashboard
+    accept_header = request.headers.get("accept", "")
+    if request.method == "GET" and not CallUUID and not From and not To and "text/html" in accept_header:
+        return RedirectResponse(url="/dashboard")
+
     # Plivo can send params in query or POST form data
     form_data = {}
     if request.method == "POST":
@@ -128,9 +162,13 @@ async def start_inbound_call(
         except Exception:
             pass
 
-    call_uuid = CallUUID or form_data.get("CallUUID")
-    from_number = From or form_data.get("From")
-    to_number = To or form_data.get("To")
+    raw_call_uuid = CallUUID or form_data.get("CallUUID")
+    raw_from_number = From or form_data.get("From")
+    raw_to_number = To or form_data.get("To")
+
+    call_uuid = str(raw_call_uuid) if raw_call_uuid else None
+    from_number = str(raw_from_number) if raw_from_number else None
+    to_number = str(raw_to_number) if raw_to_number else None
 
     print(f"Inbound call — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
@@ -165,11 +203,11 @@ async def start_inbound_call(
 
 class OutboundCallRequest(BaseModel):
     """Optional request body to override the default customer number."""
-    customer_number: str | None = None  # defaults to CUSTOMER_NUMBER from .env
+    customer_number: str | None = None  # defaults to PLIVO_CALLER_NUMBER from .env
 
 
 @app.post("/outbound-call")
-async def make_outbound_call(request: Request, body: OutboundCallRequest = None):
+async def make_outbound_call(request: Request, body: OutboundCallRequest | None = None):
     """
     Trigger an outbound call to the customer (+91 80 3133 9945 by default).
 
@@ -193,7 +231,7 @@ async def make_outbound_call(request: Request, body: OutboundCallRequest = None)
 
     # Resolve the TO number
     to_number = (body.customer_number if body and body.customer_number else None) or os.getenv(
-        "CUSTOMER_NUMBER", "+918031339945"
+        "PLIVO_CALLER_NUMBER", "+918031339945"
     )
 
     # The answer URL for the outbound call — routes through the same WebSocket agent
@@ -247,9 +285,13 @@ async def outbound_answer_webhook(
         except Exception:
             pass
 
-    call_uuid = CallUUID or form_data.get("CallUUID")
-    from_number = From or form_data.get("From")
-    to_number = To or form_data.get("To")
+    raw_call_uuid = CallUUID or form_data.get("CallUUID")
+    raw_from_number = From or form_data.get("From")
+    raw_to_number = To or form_data.get("To")
+
+    call_uuid = str(raw_call_uuid) if raw_call_uuid else None
+    from_number = str(raw_from_number) if raw_from_number else None
+    to_number = str(raw_to_number) if raw_to_number else None
 
     print(f"Outbound call answered — From: {from_number}, To: {to_number}, UUID: {call_uuid}")
 
@@ -276,20 +318,72 @@ async def outbound_answer_webhook(
 
 @app.api_route("/forward-call", methods=["GET", "POST"])
 async def forward_call_webhook(
-    ForwardTo: str = Query("+918610467370", description="Number to forward to")
+    request: Request,
+    ForwardTo: str = Query(None, description="Number to forward to (overrides env default)")
 ):
     """
     Webhook for forwarding the call.
-    Returns XML to dial another number.
+    Returns XML to dial the support agent number.
+    The target number is read from FORWARD_TO_NUMBER .
     """
+    # Resolve forward-to number: query param > database settings > env var > hardcoded fallback
+    settings = db_get_settings()
+    db_forward_number = settings.get("forward_to_number")
+    forward_number = ForwardTo or db_forward_number or os.getenv("FORWARD_TO_NUMBER")
+    
+    # Construct transcription callback URL
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    transcription_url = f"https://{host}/forward-transcription-callback"
+    
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Record 
+    startOnDialAnswer="true" 
+    redirect="false" 
+    transcriptionType="auto" 
+    transcriptionUrl="{transcription_url}" 
+    transcriptionMethod="POST" />
   <Dial>
-    <Number>{ForwardTo}</Number>
+    <Number>{forward_number}</Number>
   </Dial>
 </Response>"""
-    print(f"Returning XML for forwarding call to {ForwardTo}: {xml}")
+    print(f"Returning XML for forwarding call to {forward_number} with transcription: {xml}")
     return Response(content=xml, media_type="application/xml")
+
+
+@app.post("/forward-transcription-callback")
+async def forward_transcription_callback(request: Request):
+    """
+    Callback endpoint where Plivo posts the transcription of the forwarded call.
+    """
+    try:
+        form_data = await request.form()
+        payload = dict(form_data)
+    except Exception:
+        payload = {}
+
+    if not payload:
+        try:
+            payload = await request.json()
+        except Exception:
+            pass
+
+    print(f"Received transcription callback: {payload}")
+
+    raw_call_uuid = payload.get("call_uuid") or payload.get("CallUUID")
+    raw_transcription = payload.get("transcription") or payload.get("TranscriptionText") or payload.get("transcription_text")
+
+    call_uuid = str(raw_call_uuid) if raw_call_uuid else None
+    transcription_text = str(raw_transcription) if raw_transcription else None
+
+    if call_uuid and transcription_text:
+        print(f"Saving transcription for call {call_uuid}: {transcription_text}")
+        db_set_forwarded_transcript_by_uuid(call_uuid, transcription_text)
+        return {"status": "success"}
+    else:
+        print(f"Missing call_uuid or transcription in callback: {payload}")
+        return {"status": "ignored"}
+
 
 
 # ─── WebSocket Handler ─────────────────────────────────────────────────────────
@@ -323,10 +417,11 @@ async def websocket_endpoint(
         runner_args = WebSocketRunnerArguments(websocket=websocket)
         runner_args.handle_sigint = False
 
-        call_uuid = body_data.get("call_uuid")
+        call_uuid = str(body_data.get("call_uuid")) if body_data.get("call_uuid") else None
+        from_number = str(body_data.get("from")) if body_data.get("from") else None
         host = websocket.headers.get("x-forwarded-host") or websocket.headers.get("host") or websocket.url.netloc
         print(f"WebSocket host detected: {host}")
-        await bot(runner_args, call_uuid=call_uuid, host=host)
+        await bot(runner_args, call_uuid=call_uuid, host=host, caller_number=from_number)
 
     except Exception as e:
         print(f"Error in WebSocket endpoint: {e}")
@@ -350,9 +445,186 @@ async def health_check():
         "status": "ok",
         "service": "Plivo AI Voice Agent",
         "caller_number": os.getenv("PLIVO_CALLER_NUMBER", "not configured"),
-        "customer_number": os.getenv("CUSTOMER_NUMBER", "not configured"),
+        "customer_number": os.getenv("PLIVO_CALLER_NUMBER", "not configured"),
         "env": os.getenv("ENV", "local"),
     }
+
+
+
+# ─── Dashboard & API Endpoints ──────────────────────────────────────────────────
+
+
+# ─── Auth Middleware & Models ──────────────────────────────────────────────────
+
+async def get_current_user(authorization: str = Header(None)):
+    """FastAPI dependency to secure API routes using a Bearer token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authentication token"
+        )
+    token = authorization.split(" ")[1]
+    username = db_verify_session(token)
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid"
+        )
+    return username
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+# ─── Auth Endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/api/verify-token")
+async def verify_token(username: str = Depends(get_current_user)):
+    """Validate current session token."""
+    return {"status": "valid", "username": username}
+
+
+@app.post("/api/login")
+async def login_api(body: LoginRequest):
+    """Authenticate user and return a session token."""
+    try:
+        username = body.username.strip()
+        password = body.password
+
+        is_valid = db_check_user_credentials(username, password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password"
+            )
+
+        token = db_create_session(username)
+        return {
+            "success": True,
+            "token": token,
+            "username": username
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/logout")
+async def logout_api(authorization: str = Header(None)):
+    """Log out user by deleting their session token."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        db_delete_session(token)
+    return {"success": True, "message": "Logged out successfully"}
+
+
+# ─── Dashboard Data Endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/calls")
+def get_calls_api(
+    search: str | None = None,
+    search_term: str | None = None,
+    type: str | None = None,
+    type_filter: str | None = None,
+    filter_type: str | None = None,
+    order: str | None = None,
+    order_filter: str | None = None,
+    username: str = Depends(get_current_user),
+):
+    resolved_search = search_term or search
+    resolved_type = type_filter or filter_type or type or "all"
+    resolved_order = order_filter or order or "all"
+
+    print("type_filter =", resolved_type)
+    print("order_filter =", resolved_order)
+
+    return db_get_all_calls(
+        search_term=resolved_search,
+        type_filter=resolved_type,
+        order_filter=resolved_order,
+    )
+
+class SettingsUpdateRequest(BaseModel):
+    welcome_message: str
+    system_prompt: str
+    forward_to_number: str
+
+
+@app.get("/api/settings")
+async def get_settings_api(username: str = Depends(get_current_user)):
+    """Retrieve system configuration settings."""
+    try:
+        settings = db_get_settings()
+        return {
+            "welcome_message": settings.get("welcome_message", ""),
+            "system_prompt": settings.get("system_prompt", ""),
+            "forward_to_number": settings.get("forward_to_number", "")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/settings")
+async def update_settings_api(
+    body: SettingsUpdateRequest,
+    username: str = Depends(get_current_user),
+):
+    """Update system configuration settings."""
+    try:
+        success = db_update_settings(
+            welcome_message=body.welcome_message,
+            system_prompt=body.system_prompt,
+            forward_to_number=body.forward_to_number
+        )
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update settings in database")
+        return {"status": "success", "message": "Settings updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard():
+    """Return the beautiful React Call History dashboard."""
+    react_html_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "frontend", "dist", "index.html"
+    )
+    if os.path.exists(react_html_path):
+        with open(react_html_path, encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+
+    # Fallback to legacy dashboard.html if React build is not found
+    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+    if not os.path.exists(html_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Dashboard template not found. Please build the frontend project.",
+        )
+    with open(html_path, encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+
+@app.get("/favicon.svg")
+async def get_favicon():
+    """Serve the favicon.svg from the built frontend or public fallback."""
+    dist_favicon = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "frontend", "dist", "favicon.svg"
+    )
+    if os.path.exists(dist_favicon):
+        return FileResponse(dist_favicon)
+
+    public_favicon = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "frontend", "public", "favicon.svg"
+    )
+    if os.path.exists(public_favicon):
+        return FileResponse(public_favicon)
+
+    raise HTTPException(status_code=404, detail="Favicon not found")
 
 
 # ─── Entry Point ───────────────────────────────────────────────────────────────

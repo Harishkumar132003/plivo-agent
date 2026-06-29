@@ -5,10 +5,14 @@ description = "Plivo dial-in example for Pipecat"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "pipecat-ai[cartesia,deepgram,openai,runner,sarvam,silero,websocket]>=1.4.0",
+  "pipecat-ai[cartesia,deepgram,google,openai,runner,sarvam,silero,websocket]>=1.4.0",
+  "google-genai>=0.1.1",
   "pipecatcloud>=0.7.1",
   "plivo>=4.44.0",
   "aiohttp>=3.9.0",
+  "pymongo>=4.17.0",
+  "motor>=3.7.1",
+  "dnspython>=2.8.0",
 ]
 
 [dependency-groups]
