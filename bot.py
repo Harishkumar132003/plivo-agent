@@ -15,6 +15,7 @@ Plivo AI Voice Agent
 import asyncio
 import os
 import time
+from datetime import datetime
 import plivo
 
 import aiohttp
@@ -46,6 +47,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from database import (
     db_append_transcript,
+    db_set_transcript,
     db_create_call,
     db_set_duration,
     db_set_forwarded,
@@ -99,6 +101,7 @@ async def run_bot(
 
     db_id = db_create_call(caller_number or "Unknown", call_uuid=call_uuid or "")
     start_time = time.time()
+    call_transcript = []
 
     # Placeholders for nested function access
     llm: GeminiLiveLLMService | None = None
@@ -295,13 +298,21 @@ async def run_bot(
     async def on_user_turn_message_added(aggregator, message: UserTurnMessageAddedMessage):
         user_transcript = message.content
         if user_transcript and db_id:
-            db_append_transcript(db_id, "user", user_transcript)
+            call_transcript.append({
+                "role": "user",
+                "text": user_transcript,
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            })
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message: AssistantTurnStoppedMessage):
         agent_transcript = message.content
         if agent_transcript and db_id:
-            db_append_transcript(db_id, "agent", agent_transcript)
+            call_transcript.append({
+                "role": "agent",
+                "text": agent_transcript,
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            })
 
     pipeline = Pipeline(
         [
@@ -344,6 +355,8 @@ async def run_bot(
         duration = int(time.time() - start_time)
         if db_id:
             db_set_duration(db_id, duration)
+            if call_transcript:
+                db_set_transcript(db_id, call_transcript)
 
 
 # ─── Entry Points ──────────────────────────────────────────────────────────────

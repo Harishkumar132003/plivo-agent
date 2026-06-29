@@ -93,6 +93,19 @@ def db_append_transcript(db_id: str, role: str, text: str):
     except PyMongoError as e:
         print(f"Failed to append transcript to MongoDB: {e}")
 
+def db_set_transcript(db_id: str, transcript: list):
+    """Sets the entire transcript array for the call."""
+    if not db_id or not transcript:
+        return
+    try:
+        db = get_db()
+        db.calls.update_one(
+            {"_id": ObjectId(db_id)},
+            {"$set": {"transcript": transcript}}
+        )
+    except PyMongoError as e:
+        print(f"Failed to set transcript in MongoDB: {e}")
+
 def calculate_call_cost(duration: int, speaking_time: float = 0.0) -> dict:
     """Calculates call costs for Plivo and Gemini Live.
     
@@ -172,25 +185,50 @@ def db_set_forwarded_transcript_by_uuid(call_uuid: str, transcription_text: str)
     except PyMongoError as e:
         print(f"Failed to update forwarded transcript in MongoDB: {e}")
 
-def db_get_all_calls():
-    """Retrieves all call logs, ordered by time of call descending, mapping _id to id."""
+def db_get_all_calls(search_term=None, type_filter="all", order_filter="all"):
     try:
         db = get_db()
+
+        query = {}
+
+        # Search
+        if search_term:
+            regex = {
+                "$regex": re.escape(search_term),
+                "$options": "i"
+            }
+
+            query["$or"] = [
+                {"phone_number": regex},
+                {"order_number": regex},
+                {"transcript.text": regex},
+                {"forwarded_transcript": regex}
+            ]
+
+        # Type filter
+        if type_filter == "forwarded":
+            query["call_forwarded"] = True
+        elif type_filter == "direct":
+            query["call_forwarded"] = False
+
+        # Order filter
+        if order_filter == "with-order":
+            query["order_number"] = {"$ne": ""}
+        elif order_filter == "no-order":
+            query["order_number"] = ""
+
+        print("Mongo Query =>", query)
+
         calls = []
-        for doc in db.calls.find().sort("time_of_call", -1):
+
+        for doc in db.calls.find(query).sort("time_of_call", -1):
             doc["id"] = str(doc.pop("_id"))
-            # Ensure cost fields exist
-            if "total_cost" not in doc:
-                duration = doc.get("duration", 0)
-                # Estimate speaking time as 30% of duration for historical calls
-                costs = calculate_call_cost(duration, duration * 0.3)
-                doc["plivo_cost"] = costs["plivo_cost"]
-                doc["gemini_cost"] = costs["gemini_cost"]
-                doc["total_cost"] = costs["total_cost"]
             calls.append(doc)
+
         return calls
+
     except PyMongoError as e:
-        print(f"Failed to retrieve calls from MongoDB: {e}")
+        print(e)
         return []
 
 DEFAULT_WELCOME_MESSAGE = "Hello, thank you for calling Goodwind Technologies support. How can I help you today?"

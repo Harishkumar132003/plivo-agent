@@ -19,7 +19,8 @@ from contextlib import asynccontextmanager
 import plivo
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
+from starlette import status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -32,8 +33,12 @@ load_dotenv()
 # Import bot at startup to pre-warm VAD and libraries before any call comes in
 from bot import bot
 from database import (
+    db_check_user_credentials,
+    db_create_session,
+    db_delete_session,
     db_get_all_calls,
     db_set_forwarded_transcript_by_uuid,
+    db_verify_session,
     init_db,
     db_get_settings,
     db_update_settings,
@@ -449,15 +454,98 @@ async def health_check():
 # ─── Dashboard & API Endpoints ──────────────────────────────────────────────────
 
 
-@app.get("/api/calls")
-async def get_calls_api():
-    """Retrieve call logs."""
+# ─── Auth Middleware & Models ──────────────────────────────────────────────────
+
+async def get_current_user(authorization: str = Header(None)):
+    """FastAPI dependency to secure API routes using a Bearer token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authentication token"
+        )
+    token = authorization.split(" ")[1]
+    username = db_verify_session(token)
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid"
+        )
+    return username
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+# ─── Auth Endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/api/verify-token")
+async def verify_token(username: str = Depends(get_current_user)):
+    """Validate current session token."""
+    return {"status": "valid", "username": username}
+
+
+@app.post("/api/login")
+async def login_api(body: LoginRequest):
+    """Authenticate user and return a session token."""
     try:
-        calls = db_get_all_calls()
-        return calls
+        username = body.username.strip()
+        password = body.password
+
+        is_valid = db_check_user_credentials(username, password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password"
+            )
+
+        token = db_create_session(username)
+        return {
+            "success": True,
+            "token": token,
+            "username": username
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/logout")
+async def logout_api(authorization: str = Header(None)):
+    """Log out user by deleting their session token."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        db_delete_session(token)
+    return {"success": True, "message": "Logged out successfully"}
+
+
+# ─── Dashboard Data Endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/calls")
+def db_get_all_calls(search_term=None, type_filter="all", order_filter="all"):
+    print("type_filter =", type_filter)
+    print("order_filter =", order_filter)
+
+    query = {}
+
+    if type_filter == "forwarded":
+        query["call_forwarded"] = True
+    elif type_filter == "direct":
+        query["call_forwarded"] = False
+
+    if order_filter == "with-order":
+        query["order_number"] = {"$ne": ""}
+    elif order_filter == "no-order":
+        query["order_number"] = ""
+
+    print("Mongo Query:", query)
+
+    docs = list(get_db().calls.find(query))
+    print("Matched:", len(docs))
+
+    return docs
 
 class SettingsUpdateRequest(BaseModel):
     welcome_message: str
@@ -466,7 +554,7 @@ class SettingsUpdateRequest(BaseModel):
 
 
 @app.get("/api/settings")
-async def get_settings_api():
+async def get_settings_api(username: str = Depends(get_current_user)):
     """Retrieve system configuration settings."""
     try:
         settings = db_get_settings()
@@ -480,7 +568,10 @@ async def get_settings_api():
 
 
 @app.post("/api/settings")
-async def update_settings_api(body: SettingsUpdateRequest):
+async def update_settings_api(
+    body: SettingsUpdateRequest,
+    username: str = Depends(get_current_user),
+):
     """Update system configuration settings."""
     try:
         success = db_update_settings(

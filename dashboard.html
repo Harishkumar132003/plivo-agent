@@ -1119,36 +1119,36 @@
       // Fetch data from FastAPI API
       async function fetchCalls() {
         refreshBtn.classList.add("refreshing");
+
         try {
-          const apiUrl = window.location.origin + "/api/calls";
+          const params = new URLSearchParams();
+
+          if (currentSearch) params.append("search", currentSearch);
+
+          if (currentTypeFilter && currentTypeFilter !== "all")
+            params.append("filter_type", currentTypeFilter);
+
+          if (currentOrderFilter && currentOrderFilter !== "all")
+            params.append("order", currentOrderFilter);
+
+          const apiUrl = `${window.location.origin}/api/calls?${params.toString()}`;
+
+          console.log(apiUrl); // Debug
+
           const response = await fetch(apiUrl);
+
           if (!response.ok)
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
           const data = await response.json();
+
           callDataCache = data;
           renderCalls(data);
           updateStats(data);
-
-          const now = new Date();
-          lastUpdatedEl.textContent = `Last updated: ${now.toLocaleTimeString()}`;
-        } catch (error) {
-          console.error("Error fetching call logs:", error);
-          callsTableBody.innerHTML = `
-                    <tr>
-                        <td colspan="7" class="empty-state">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <line x1="12" y1="8" x2="12" y2="12"></line>
-                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                            </svg>
-                            <p style="color: #ef4444;">Failed to load call history: ${error.message}</p>
-                            <p style="font-size:0.8rem; margin-top:0.5rem;">Check that the server is running and accessible.</p>
-                        </td>
-                    </tr>
-                `;
-          lastUpdatedEl.textContent = `Last updated: Failed`;
+        } catch (err) {
+          console.error(err);
         } finally {
-          setTimeout(() => refreshBtn.classList.remove("refreshing"), 600);
+          refreshBtn.classList.remove("refreshing");
         }
       }
 

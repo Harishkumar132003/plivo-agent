@@ -13,14 +13,14 @@ export const CallsTable = ({
   lastUpdated,
   onOpenTranscript,
   onInitiateCallback,
+  typeFilter,
+  setTypeFilter,
+  orderFilter,
+  setOrderFilter,
 }) => {
   // Sort State
   const [sortKey, setSortKey] = useState("time_of_call");
   const [sortOrder, setSortOrder] = useState("desc"); // 'asc' | 'desc'
-
-  // Filter State
-  const [typeFilter, setTypeFilter] = useState("all"); // 'all' | 'direct' | 'forwarded'
-  const [orderFilter, setOrderFilter] = useState("all"); // 'all' | 'with-order' | 'no-order'
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -82,22 +82,8 @@ export const CallsTable = ({
     );
   };
 
-  // 1. Apply dropdown filters
-  const filteredCalls = calls.filter((call) => {
-    // Type Filter
-    if (typeFilter === "direct" && call.call_forwarded) return false;
-    if (typeFilter === "forwarded" && !call.call_forwarded) return false;
-
-    // Order ID Filter
-    const hasOrder = !!call.order_number;
-    if (orderFilter === "with-order" && !hasOrder) return false;
-    if (orderFilter === "no-order" && hasOrder) return false;
-
-    return true;
-  });
-
   // 2. Apply sorting
-  const sortedCalls = [...filteredCalls].sort((a, b) => {
+  const sortedCalls = [...calls].sort((a, b) => {
     let valA = a[sortKey];
     let valB = b[sortKey];
 
