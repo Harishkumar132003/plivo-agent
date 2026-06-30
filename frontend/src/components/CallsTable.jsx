@@ -5,7 +5,11 @@ import {
   ArrowUpDown, 
   ArrowUp, 
   ArrowDown, 
-  Filter
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from "lucide-react";
 
 export const CallsTable = ({
@@ -320,33 +324,57 @@ export const CallsTable = ({
       {totalItems > 0 && (
         <div className="pagination-container">
           <div className="pagination-info">
-            Showing {startIndex + 1} to {endIndex} of {totalItems} entries
+            Showing <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{startIndex + 1}</span> to <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{endIndex}</span> of <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{totalItems}</span> entries
           </div>
           <div className="pagination-controls">
             <button
               className="page-btn"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+              title="First Page"
+            >
+              <ChevronsLeft size={15} />
+            </button>
+            <button
+              className="page-btn"
               onClick={() => setCurrentPage(currentPage - 1)}
               disabled={currentPage === 1}
+              title="Previous Page"
             >
-              Previous
+              <ChevronLeft size={15} />
             </button>
             
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-              <button
-                key={page}
-                className={`page-btn ${currentPage === page ? "active" : ""}`}
-                onClick={() => setCurrentPage(page)}
+            <div className="pagination-selector">
+              <span className="page-label">Page</span>
+              <select
+                value={currentPage}
+                onChange={(e) => setCurrentPage(Number(e.target.value))}
+                className="page-select-dropdown"
               >
-                {page}
-              </button>
-            ))}
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <option key={page} value={page}>
+                    {page}
+                  </option>
+                ))}
+              </select>
+              <span className="page-total">of {totalPages}</span>
+            </div>
 
             <button
               className="page-btn"
               onClick={() => setCurrentPage(currentPage + 1)}
               disabled={currentPage === totalPages}
+              title="Next Page"
             >
-              Next
+              <ChevronRight size={15} />
+            </button>
+            <button
+              className="page-btn"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+              title="Last Page"
+            >
+              <ChevronsRight size={15} />
             </button>
           </div>
         </div>
