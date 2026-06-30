@@ -314,7 +314,6 @@ async def run_bot(
     @llm.event_handler("on_connected")
     async def on_llm_connected(service):
         logger.info("[LLM] Gemini Live session ready")
-        llm_ready.set()
 
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
@@ -374,18 +373,12 @@ async def run_bot(
         # Pre-load the greeting trigger into context immediately.
         context.add_message({"role": "user", "content": CONNECT_GREETING_TRIGGER})
 
-        # Wait for Gemini Live WS to be ready (llm_ready set by on_llm_connected),
-        # then fire — no blind sleep, no polling, zero unnecessary delay.
-        async def fire_greeting_when_ready():
-            try:
-                await asyncio.wait_for(llm_ready.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("[CONNECT] LLM ready timeout — firing greeting anyway")
-            if worker:
-                await worker.queue_frames([LLMRunFrame()])
-                logger.info("[CONNECT] Greeting fired immediately after LLM ready")
-
-        asyncio.create_task(fire_greeting_when_ready())
+        # Queue the greeting run immediately. GeminiLiveLLMService buffers
+        # frames internally until its WS handshake completes, so this is
+        # already frame-accurate — no manual wait needed, and no 10s stall.
+        if worker:
+            await worker.queue_frames([LLMRunFrame()])
+            logger.info("[CONNECT] Greeting frame queued")
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

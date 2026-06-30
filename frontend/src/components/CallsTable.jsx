@@ -9,7 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  RefreshCw
 } from "lucide-react";
 
 export const CallsTable = ({
@@ -21,6 +22,7 @@ export const CallsTable = ({
   setTypeFilter,
   orderFilter,
   setOrderFilter,
+  refreshing,
 }) => {
   // Sort State
   const [sortKey, setSortKey] = useState("time_of_call");
@@ -120,6 +122,14 @@ export const CallsTable = ({
 
   return (
     <div className="table-card">
+      {refreshing && (
+        <div className="table-loading-backdrop">
+          <div className="loading-spinner-wrap">
+            <RefreshCw className="animate-spin" size={28} />
+            <span>Updating Conversations...</span>
+          </div>
+        </div>
+      )}
       <div className="table-header" style={{ flexWrap: "wrap", gap: "1rem" }}>
         <div className="table-title">
           Recent Conversations

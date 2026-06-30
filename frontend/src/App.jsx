@@ -12,6 +12,7 @@ import "./App.scss";
 
 function App() {
   const [calls, setCalls] = useState([]);
+  const [stats, setStats] = useState(null);
   const [settings, setSettings] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
@@ -108,6 +109,30 @@ function App() {
   };
 
   // Fetch Calls
+  // Fetch Stats (Only at initial load)
+  const fetchStats = useCallback(async () => {
+    if (!token) return;
+    try {
+      const statsUrl = getApiUrl("/api/calls/stats");
+      const response = await fetch(statsUrl, {
+        headers: getAuthHeaders(),
+      });
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(`Stats HTTP ${response.status}: ${response.statusText}`);
+      }
+      const statsData = await response.json();
+      console.log("Returned Stats:", statsData);
+      setStats(statsData);
+    } catch (err) {
+      console.error("Error fetching stats:", err);
+    }
+  }, [token]);
+
+  // Fetch Calls
   const fetchCalls = useCallback(async () => {
     if (!token) return;
 
@@ -150,7 +175,7 @@ function App() {
       }
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`Calls HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
@@ -197,6 +222,13 @@ function App() {
     }
   };
 
+  // Fetch settings dynamically when activeTab switches to settings
+  useEffect(() => {
+    if (activeTab === "settings" && token) {
+      fetchSettings();
+    }
+  }, [activeTab, token]);
+
   // Save Settings
   const handleSaveSettings = async (newSettings) => {
     if (!token) return false;
@@ -219,27 +251,18 @@ function App() {
     }
   };
 
-  // Verify token & fetch data on mount/token change
+  // Verify session and fetch stats once on mount/token change
   useEffect(() => {
-    const verifyAndFetch = async () => {
+    const initFetch = async () => {
       if (token) {
         setIsVerifying(true);
         try {
-          const response = await fetch(getApiUrl("/api/verify-token"), {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (response.status === 401) {
-            handleLogout();
-            setIsVerifying(false);
-            return;
-          }
-          if (!response.ok) throw new Error("Token validation failed");
           if (window.location.pathname !== "/dashboard") {
             window.history.pushState({}, "", "/dashboard");
           }
-          await Promise.all([fetchCalls(), fetchSettings()]);
+          await fetchStats();
         } catch (error) {
-          console.error("Token verification error:", error);
+          console.error("Initial fetch error:", error);
           handleLogout();
         } finally {
           setIsVerifying(false);
@@ -248,8 +271,15 @@ function App() {
         setIsVerifying(false);
       }
     };
-    verifyAndFetch();
-  }, [token, fetchCalls]);
+    initFetch();
+  }, [token]);
+
+  // Fetch calls whenever token or filters change
+  useEffect(() => {
+    if (token) {
+      fetchCalls();
+    }
+  }, [token, debouncedSearchTerm, typeFilter, orderFilter, fetchCalls]);
 
   // Auto-refresh interval
   useEffect(() => {
@@ -360,7 +390,7 @@ function App() {
       <div className="dashboard-container">
         <div className="page-content">
           {/* Stats */}
-          <StatsCards calls={calls} />
+          <StatsCards calls={calls} stats={stats} />
 
           {/* Tabs */}
           <div className="tabs-container">
@@ -394,6 +424,7 @@ function App() {
                 setTypeFilter={setTypeFilter}
                 orderFilter={orderFilter}
                 setOrderFilter={setOrderFilter}
+                refreshing={refreshing}
               />
             </div>
           ) : (

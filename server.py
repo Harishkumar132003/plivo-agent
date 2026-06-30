@@ -42,6 +42,7 @@ from database import (
     init_db,
     db_get_settings,
     db_update_settings,
+    db_get_overall_stats,
 )
 
 
@@ -197,6 +198,23 @@ async def start_inbound_call(
     return Response(content=xml, media_type="application/xml")
 
 
+async def get_current_user(authorization: str = Header(None)):
+    """FastAPI dependency to secure API routes using a Bearer token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authentication token"
+        )
+    token = authorization.split(" ")[1]
+    username = db_verify_session(token)
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid"
+        )
+    return username
+
+
 # ─── Outbound Call Trigger ─────────────────────────────────────────────────────
 
 
@@ -206,7 +224,11 @@ class OutboundCallRequest(BaseModel):
 
 
 @app.post("/outbound-call")
-async def make_outbound_call(request: Request, body: OutboundCallRequest | None = None):
+async def make_outbound_call(
+    request: Request,
+    body: OutboundCallRequest | None = None,
+    username: str = Depends(get_current_user)
+):
     """
     Trigger an outbound call to the customer (+91 80 3133 9945 by default).
 
@@ -447,23 +469,6 @@ async def health_check():
 
 # ─── Auth Middleware & Models ──────────────────────────────────────────────────
 
-async def get_current_user(authorization: str = Header(None)):
-    """FastAPI dependency to secure API routes using a Bearer token."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authentication token"
-        )
-    token = authorization.split(" ")[1]
-    username = db_verify_session(token)
-    if not username:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired or invalid"
-        )
-    return username
-
-
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -471,10 +476,7 @@ class LoginRequest(BaseModel):
 
 # ─── Auth Endpoints ────────────────────────────────────────────────────────────
 
-@app.get("/api/verify-token")
-async def verify_token(username: str = Depends(get_current_user)):
-    """Validate current session token."""
-    return {"status": "valid", "username": username}
+# (Verify-token endpoint removed. Token validation is performed directly on authenticated resource requests)
 
 
 @app.post("/api/login")
@@ -504,7 +506,10 @@ async def login_api(body: LoginRequest):
 
 
 @app.post("/api/logout")
-async def logout_api(authorization: str = Header(None)):
+async def logout_api(
+    username: str = Depends(get_current_user),
+    authorization: str = Header(None)
+):
     """Log out user by deleting their session token."""
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ")[1]
@@ -534,6 +539,15 @@ def get_calls_api(
         type_filter=resolved_type,
         order_filter=resolved_order,
     )
+
+
+@app.get("/api/calls/stats")
+def get_calls_stats_api(username: str = Depends(get_current_user)):
+    """Retrieve overall statistics for dashboard cards."""
+    try:
+        return db_get_overall_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class SettingsUpdateRequest(BaseModel):
     welcome_message: str
@@ -597,7 +611,7 @@ async def get_dashboard():
     return HTMLResponse(content=html_content)
 
 
-@app.get("/favicon.svg")
+@app.get("/phone.svg")
 async def get_favicon():
     """Serve the favicon.svg from the built frontend or public fallback."""
     dist_favicon = os.path.join(

@@ -288,6 +288,35 @@ def db_get_all_calls(search_term=None, type_filter="all", order_filter="all"):
         print(e)
         return []
 
+def db_get_overall_stats():
+    """Gets overall statistics from the calls collection in MongoDB."""
+    try:
+        db = get_db()
+        total_calls = db.calls.count_documents({})
+        
+        orders_checked = db.calls.count_documents({
+            "order_number": {"$ne": ""}
+        })
+        
+        pipeline = [
+            {"$group": {"_id": None, "total_cost": {"$sum": "$total_cost"}}}
+        ]
+        result = list(db.calls.aggregate(pipeline))
+        total_cost = result[0]["total_cost"] if result else 0.0
+        
+        return {
+            "total_calls": total_calls,
+            "orders_checked": orders_checked,
+            "total_cost": round(total_cost, 5)
+        }
+    except PyMongoError as e:
+        print(f"Failed to fetch overall stats from MongoDB: {e}")
+        return {
+            "total_calls": 0,
+            "orders_checked": 0,
+            "total_cost": 0.0
+        }
+
 DEFAULT_WELCOME_MESSAGE = "Hello, thank you for calling Goodwind Technologies support. How can I help you today?"
 
 DEFAULT_SYSTEM_PROMPT = """You are a voice support agent for Goodwind Technologies handling inbound calls.
