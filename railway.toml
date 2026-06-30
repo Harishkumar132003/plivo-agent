@@ -1,0 +1,34 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.railway"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+# ── Set these in Railway's Variables tab ──────────────────────────────────────
+# Railway injects PORT automatically — do not set it manually.
+#
+# Dynamic variables (use ${{...}} syntax in Railway Variables UI):
+#   (none required — Railway injects PORT and RAILWAY_PUBLIC_DOMAIN automatically)
+#
+# Required secrets — set manually in Railway Variables:
+#   DB_CONNECTION_STRING     = <your MongoDB Atlas connection string>
+#   OPENAI_API_KEY           = <your OpenAI key>
+#   DEEPGRAM_API_KEY         = <your Deepgram key>
+#   CARTESIA_API_KEY         = <your Cartesia key>
+#   SARVAM_API_KEY           = <your Sarvam key>
+#   GEMINI_API_KEY           = <your Gemini key>
+#   PLIVO_AUTH_ID            = <your Plivo auth ID>
+#   PLIVO_AUTH_TOKEN         = <your Plivo auth token>
+#   PLIVO_CALLER_NUMBER      = <your Plivo number, e.g. +91XXXXXXXXXX>
+#   FORWARD_TO_NUMBER        = <support agent number, e.g. +91XXXXXXXXXX>
+#   ZOHO_ORDER_API_URL       = <your Zoho Creator API URL>
+#   ZOHO_API_PUBLIC_KEY      = <your Zoho API public key>
+#
+# Seed credentials — set in Railway Variables to override defaults:
+#   ADMIN_PASSWORD           = <secure password for the admin user>
+#   DEMO_USER_EMAIL          = demouser@gmail.com
+#   DEMO_USER_PASSWORD       = <secure password for the demo user>

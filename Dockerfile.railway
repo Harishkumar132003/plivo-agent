@@ -1,0 +1,39 @@
+# ── Stage 1: Build React frontend ────────────────────────────────────────────
+FROM node:20-slim AS frontend-build
+
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: Python runtime ───────────────────────────────────────────────────
+FROM python:3.11-slim
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+# onnxruntime (silero VAD) requires libgomp at runtime; not present in slim
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies via uv (lockfile-driven, no project install)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-install-project --no-dev
+
+# Copy application source
+COPY bot.py server.py database.py ./
+
+# Copy built frontend assets
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+
+EXPOSE 8080
+
+CMD sh -c "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"
