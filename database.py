@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 import hashlib
 import secrets
@@ -52,7 +53,12 @@ def db_create_call(phone_number: str, call_uuid: str = "") -> str:
             "order_number": "",
             "transcript": [],
             "call_forwarded": False,
-            "forwarded_transcript": ""
+            "forwarded_transcript": "",
+            "plivo_cost": 0.0,
+            "gemini_cost": 0.0,
+            "total_cost": 0.0,
+            "gemini_input_tokens": 0,
+            "gemini_output_tokens": 0
         })
         return str(res.inserted_id)
     except PyMongoError as e:
@@ -90,7 +96,9 @@ def db_save_call(
             "forwarded_transcript": forwarded_transcript,
             "plivo_cost": costs["plivo_cost"],
             "gemini_cost": costs["gemini_cost"],
-            "total_cost": costs["total_cost"]
+            "total_cost": costs["total_cost"],
+            "gemini_input_tokens": costs["gemini_input_tokens"],
+            "gemini_output_tokens": costs["gemini_output_tokens"]
         })
         return str(res.inserted_id)
     except PyMongoError as e:
@@ -149,8 +157,8 @@ def calculate_call_cost(duration: int, speaking_time: float = 0.0) -> dict:
     
     Plivo Voice: $0.0085 per minute (rounded up to nearest minute)
     Gemini 2.5 Flash Live API:
-      - Audio Input: $0.00002 / second of call duration (since audio is constantly sent)
-      - Audio Output: $0.00015 / second of assistant speaking time
+      - Audio Input: 32 tokens / second of call duration
+      - Audio Output: 32 tokens / second of assistant speaking time
     """
     import math
     if duration <= 0:
@@ -164,16 +172,25 @@ def calculate_call_cost(duration: int, speaking_time: float = 0.0) -> dict:
     if speaking_time <= 0 and duration > 0:
         speaking_time = duration * 0.3
     
-    gemini_input_cost = duration * 0.00002
-    gemini_output_cost = speaking_time * 0.00015
+    # Calculate tokens (32 tokens/second of audio)
+    gemini_input_tokens = int(duration * 32)
+    gemini_output_tokens = int(speaking_time * 32)
+    
+    # Calculate cost according to tokens
+    gemini_input_cost = gemini_input_tokens * (0.00002 / 32)
+    gemini_output_cost = gemini_output_tokens * (0.00015 / 32)
     gemini_cost = gemini_input_cost + gemini_output_cost
     
     total_cost = plivo_cost + gemini_cost
     
+    print(f"Gemini Live - Input Tokens: {gemini_input_tokens}, Output Tokens: {gemini_output_tokens}")
+    
     return {
         "plivo_cost": round(plivo_cost, 5),
         "gemini_cost": round(gemini_cost, 5),
-        "total_cost": round(total_cost, 5)
+        "total_cost": round(total_cost, 5),
+        "gemini_input_tokens": gemini_input_tokens,
+        "gemini_output_tokens": gemini_output_tokens
     }
 
 def db_set_duration(db_id: str, duration: int, speaking_time: float = 0.0):
@@ -190,7 +207,9 @@ def db_set_duration(db_id: str, duration: int, speaking_time: float = 0.0):
                     "duration": duration,
                     "plivo_cost": costs["plivo_cost"],
                     "gemini_cost": costs["gemini_cost"],
-                    "total_cost": costs["total_cost"]
+                    "total_cost": costs["total_cost"],
+                    "gemini_input_tokens": costs["gemini_input_tokens"],
+                    "gemini_output_tokens": costs["gemini_output_tokens"]
                 }
             }
         )

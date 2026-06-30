@@ -113,6 +113,9 @@ function App() {
 
     setRefreshing(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const queryParams = new URLSearchParams();
 
@@ -136,7 +139,10 @@ function App() {
 
       const response = await fetch(url, {
         headers: getAuthHeaders(),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (response.status === 401) {
         handleLogout();
@@ -159,8 +165,14 @@ function App() {
         }),
       );
     } catch (err) {
-      console.error(err);
-      setLastUpdated("Failed to sync");
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") {
+        console.error("Fetch request timed out after 30 seconds");
+        setLastUpdated("Sync timed out");
+      } else {
+        console.error(err);
+        setLastUpdated("Failed to sync");
+      }
     } finally {
       setTimeout(() => setRefreshing(false), 500);
     }
