@@ -1,15 +1,15 @@
 import React from "react";
 import { Phone, ShoppingBag, Zap } from "lucide-react";
 
-export const StatsCards = ({ calls }) => {
-  const totalCalls = calls.length;
-  const ordersChecked = calls.filter((call) => call.order_number).length;
-  const totalCost = calls.reduce(
+export const StatsCards = ({ calls = [], stats }) => {
+  const totalCalls = (stats && typeof stats.total_calls === "number") ? stats.total_calls : calls.length;
+  const ordersChecked = (stats && typeof stats.orders_checked === "number") ? stats.orders_checked : calls.filter((call) => call.order_number).length;
+  const totalCost = (stats && typeof stats.total_cost === "number") ? stats.total_cost : calls.reduce(
     (sum, call) => sum + (call.total_cost || 0),
     0,
   );
 
-  const stats = [
+  const cardItems = [
     {
       icon: Phone,
       label: "Total Calls",
@@ -41,7 +41,7 @@ export const StatsCards = ({ calls }) => {
 
   return (
     <div className="stats-grid">
-      {stats.map(
+      {cardItems.map(
         ({ icon: Icon, label, value, desc, iconBg, iconColor, accentBar }) => (
           <div className="stat-card" key={label}>
             <div className="stat-card-inner">

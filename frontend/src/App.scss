@@ -749,6 +749,7 @@ input:checked + .slider {
 
 // ─── Table Card ───────────────────────────────────────────────────────────────
 .table-card {
+  position: relative;
   background: #fff;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -756,6 +757,34 @@ input:checked + .slider {
   box-shadow: var(--shadow-sm);
   margin-bottom: 1.5rem;
 }
+
+.table-loading-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  animation: fadeIn 0.2s ease;
+
+  .loading-spinner-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 0.9rem;
+
+    svg {
+      color: var(--accent-primary);
+      animation: spin 1s linear infinite;
+    }
+  }
+}
+
 
 .table-header {
   padding: 1.1rem 1.5rem;
