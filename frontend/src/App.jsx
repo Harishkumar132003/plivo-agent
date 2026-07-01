@@ -7,7 +7,7 @@ import { SettingsForm } from "./components/SettingsForm";
 import { TranscriptModal } from "./components/TranscriptModal";
 import { Login } from "./components/Login";
 import { ToastContainer } from "./components/Toast";
-import { getApiUrl } from "./api";
+import { getApiUrl, apiFetch } from "./api";
 import "./App.scss";
 
 function App() {
@@ -78,16 +78,23 @@ function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Timer Ref
   const intervalRef = useRef(null);
 
-  // Auth Header Helper
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setToken("");
+      setUsername("");
+    };
+    window.addEventListener("auth-unauthorized", handleUnauthorized);
+    return () =>
+      window.removeEventListener("auth-unauthorized", handleUnauthorized);
+  }, []);
+
   const getAuthHeaders = () => ({ Authorization: `Bearer ${token}` });
 
-  // Logout Handler
   const handleLogout = async () => {
     try {
-      await fetch(getApiUrl("/api/logout"), { method: "POST", headers: getAuthHeaders() });
+      await apiFetch("/api/logout", { method: "POST" });
     } catch (e) {
       console.error("Logout request error:", e);
     }
@@ -113,16 +120,11 @@ function App() {
   const fetchStats = useCallback(async () => {
     if (!token) return;
     try {
-      const statsUrl = getApiUrl("/api/calls/stats");
-      const response = await fetch(statsUrl, {
-        headers: getAuthHeaders(),
-      });
-      if (response.status === 401) {
-        handleLogout();
-        return;
-      }
+      const response = await apiFetch("/api/calls/stats");
       if (!response.ok) {
-        throw new Error(`Stats HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Stats HTTP ${response.status}: ${response.statusText}`,
+        );
       }
       const statsData = await response.json();
       console.log("Returned Stats:", statsData);
@@ -156,26 +158,22 @@ function App() {
         queryParams.append("order_filter", orderFilter);
       }
 
-      const url = getApiUrl(`/api/calls?${queryParams.toString()}`);
+      const path = `/api/calls?${queryParams.toString()}`;
 
       console.log("Type Filter:", typeFilter);
       console.log("Order Filter:", orderFilter);
-      console.log("Request URL:", url);
+      console.log("Request Path:", path);
 
-      const response = await fetch(url, {
-        headers: getAuthHeaders(),
+      const response = await apiFetch(path, {
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      if (response.status === 401) {
-        handleLogout();
-        return;
-      }
-
       if (!response.ok) {
-        throw new Error(`Calls HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Calls HTTP ${response.status}: ${response.statusText}`,
+        );
       }
 
       const data = await response.json();
@@ -207,13 +205,7 @@ function App() {
   const fetchSettings = async () => {
     if (!token) return;
     try {
-      const response = await fetch(getApiUrl("/api/settings"), {
-        headers: getAuthHeaders(),
-      });
-      if (response.status === 401) {
-        handleLogout();
-        return;
-      }
+      const response = await apiFetch("/api/settings");
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setSettings(data);
@@ -233,15 +225,11 @@ function App() {
   const handleSaveSettings = async (newSettings) => {
     if (!token) return false;
     try {
-      const response = await fetch(getApiUrl("/api/settings"), {
+      const response = await apiFetch("/api/settings", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newSettings),
       });
-      if (response.status === 401) {
-        handleLogout();
-        return false;
-      }
       if (!response.ok) throw new Error("Failed to save settings");
       setSettings(newSettings);
       return true;
