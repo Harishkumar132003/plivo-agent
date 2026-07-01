@@ -33,6 +33,7 @@ from pipecat.workers.runner import WorkerRunner
 from database import (
     db_save_call,
     db_get_settings,
+    db_set_forwarded_transcript_by_uuid,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_WELCOME_MESSAGE,
 )
@@ -62,7 +63,9 @@ ZOHO_API_URL: str = os.getenv(
 )
 ZOHO_PUBLIC_KEY: str = os.getenv("ZOHO_API_PUBLIC_KEY", "FjhK5xdE8XD57tqm3Z0SeZYke")
 
-# Injected as first user turn — tells Gemini to greet immediately
+# Injected as a "developer" turn — NOT a real user turn — to tell Gemini to greet
+# immediately. Using role "developer" (matching Pipecat's own reference examples)
+# instead of "user" avoids the model treating this as literal caller speech.
 CONNECT_GREETING_TRIGGER = "[call connected] Greet the caller immediately."
 
 # gemini-2.5-flash-native-audio-latest: ta-IN / ml-IN cause error 1007.
@@ -72,6 +75,8 @@ LANG_MAP = {
     "tamil":     (None,           "ta-IN", "Tamil"),
     "malayalam": (None,           "ml-IN", "Malayalam"),
 }
+
+WS_HANDSHAKE_TIMEOUT_SECS = 10
 
 # ─── Transcript printer ────────────────────────────────────────────────────────
 
@@ -106,13 +111,11 @@ async def run_bot(
     order_number = ""
     call_forwarded = False
 
+    call_ending = {"flag": False}
+
     llm: GeminiLiveLLMService | None = None
     context: LLMContext | None = None
     worker: PipelineWorker | None = None
-
-    # Set when Gemini Live session is confirmed ready — used to fire greeting at the
-    # exact right moment without any blind sleep.
-    llm_ready = asyncio.Event()
 
     # ─── TOOLS ────────────────────────────────────────────────────────────────
 
@@ -180,10 +183,9 @@ async def run_bot(
         logger.info(f"[LANG] {state['language']} → {lang_lower}")
 
         try:
-            # Inject a system-level instruction so the model switches output language
             if context is not None:
                 context.add_message({
-                    "role": "system",
+                    "role": "developer",
                     "content": (
                         f"LANGUAGE IS NOW {lang_label.upper()} ({tts_lang}). "
                         f"Speak ONLY in {lang_label} using its native script from this point. "
@@ -193,9 +195,6 @@ async def run_bot(
                     ),
                 })
 
-            # Only call set_language for codes the model actually accepts (en-US only).
-            # Tamil / Malayalam STT works automatically — calling set_language with those
-            # codes triggers error 1007 and crashes the session.
             if llm and stt_lang is not None:
                 llm.set_language(stt_lang)
 
@@ -233,6 +232,9 @@ async def run_bot(
 
         async def _hangup():
             await asyncio.sleep(3.0)
+            if call_ending["flag"]:
+                return
+            call_ending["flag"] = True
             if call_uuid:
                 try:
                     client = plivo.RestClient(
@@ -262,6 +264,15 @@ async def run_bot(
 
         async def _transfer():
             await asyncio.sleep(4.0)
+            if call_ending["flag"]:
+                return
+            call_ending["flag"] = True
+            if call_uuid and call_transcript:
+                transcript_text = "\n".join(
+                    f"[{t['timestamp']}] {t['role']}: {t['text']}" for t in call_transcript
+                )
+                db_set_forwarded_transcript_by_uuid(call_uuid, transcript_text)
+
             if call_uuid and host:
                 try:
                     client = plivo.RestClient(
@@ -308,9 +319,6 @@ async def run_bot(
         tools=[check_order_status, set_language, end_conversation, forward_call],
     )
 
-    # ── Signal greeting the instant the Gemini Live WS session is open ─────────
-    # on_connected fires from inside GeminiLiveLLMService once the WebSocket
-    # handshake with Google is complete — this is the earliest safe moment to send.
     @llm.event_handler("on_connected")
     async def on_llm_connected(service):
         logger.info("[LLM] Gemini Live session ready")
@@ -356,6 +364,7 @@ async def run_bot(
             enable_metrics=False,
             enable_usage_metrics=False,
         ),
+        idle_timeout_secs=300,
     )
 
     # ─── TRANSPORT EVENTS ─────────────────────────────────────────────────────
@@ -370,8 +379,7 @@ async def run_bot(
         print(f"  Time    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'─'*60}\n")
 
-        # Pre-load the greeting trigger into context immediately.
-        context.add_message({"role": "user", "content": CONNECT_GREETING_TRIGGER})
+        context.add_message({"role": "developer", "content": CONNECT_GREETING_TRIGGER})
 
         # Queue the greeting run immediately. GeminiLiveLLMService buffers
         # frames internally until its WS handshake completes, so this is
@@ -383,6 +391,7 @@ async def run_bot(
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("[DISCONNECT] Client disconnected")
+        call_ending["flag"] = True
         if worker:
             await worker.cancel()
 
@@ -434,38 +443,39 @@ async def bot(
     websocket = runner_args.websocket
 
     try:
-        first_msg_raw = await websocket.receive_text()
+        # Bounded wait — previously this could hang forever if Plivo never sent the
+        # expected "start" event (bad webhook config, malformed inbound call, etc.).
+        first_msg_raw = await asyncio.wait_for(
+            websocket.receive_text(), timeout=WS_HANDSHAKE_TIMEOUT_SECS
+        )
         first_msg = json.loads(first_msg_raw)
         start_data = first_msg.get("start", {})
         stream_id = start_data.get("streamId")
         call_id = start_data.get("callId")
         logger.info(f"[HANDSHAKE] stream_id={stream_id} call_id={call_id}")
+    except asyncio.TimeoutError:
+        logger.error("[HANDSHAKE] Timed out waiting for Plivo start event")
+        raise
     except Exception as e:
         logger.error(f"[HANDSHAKE] Failed: {e}")
         raise
+
+    serializer = PlivoFrameSerializer(
+        stream_id=stream_id,
+        call_id=call_id,
+        auth_id=os.getenv("PLIVO_AUTH_ID", ""),
+        auth_token=os.getenv("PLIVO_AUTH_TOKEN", ""),
+        params=PlivoFrameSerializer.InputParams(auto_hang_up=False),
+    )
 
     params = FastAPIWebsocketParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
         add_wav_header=False,
-        serializer=PlivoFrameSerializer(
-            stream_id=stream_id,
-            call_id=call_id,
-            auth_id=os.getenv("PLIVO_AUTH_ID", ""),
-            auth_token=os.getenv("PLIVO_AUTH_TOKEN", ""),
-        ),
+        serializer=serializer,
     )
 
     transport = FastAPIWebsocketTransport(websocket=websocket, params=params)
-
-    # Disable auto hangup so call transfer succeeds before WebSocket closes
-    try:
-        serializer = transport._params.serializer
-        if hasattr(serializer._params, "auto_hang_up"):
-            serializer._params.auto_hang_up = False
-            logger.info("[SERIALIZER] auto_hang_up disabled")
-    except AttributeError:
-        pass
 
     await run_bot(transport, runner_args.handle_sigint, call_uuid, host, caller_number)
 
