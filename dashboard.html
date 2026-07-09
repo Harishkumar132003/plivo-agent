@@ -1106,7 +1106,6 @@
       const ordersCheckedEl = document.getElementById("orders-checked");
       const lastUpdatedEl = document.getElementById("last-updated");
 
-      // Modal Elements
       const transcriptModal = document.getElementById("transcript-modal");
       const modalPhoneTitle = document.getElementById("modal-phone-title");
       const modalDialogBody = document.getElementById("modal-dialog-body");
@@ -1116,7 +1115,6 @@
       let callDataCache = [];
       let autoRefreshInterval = null;
 
-      // Fetch data from FastAPI API
       async function fetchCalls() {
         refreshBtn.classList.add("refreshing");
 
@@ -1132,8 +1130,6 @@
             params.append("order_filter", currentOrderFilter);
 
           const apiUrl = `http://localhost:7860/api/calls?${params.toString()}`;
-
-          console.log(apiUrl); // Debug
 
           const response = await fetch(apiUrl);
 

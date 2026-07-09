@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket
 from starlette import status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import Response
@@ -198,14 +198,61 @@ async def start_inbound_call(
     return Response(content=xml, media_type="application/xml")
 
 
-async def get_current_user(authorization: str = Header(None)):
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+   if request.url.path.startswith("/api") and request.url.path != "/api/login":
+        authorization = request.headers.get("Authorization")
+        if not authorization or not authorization.startswith("Bearer "):
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Missing or invalid authentication token"}
+            )
+        try:
+            token = authorization.split(" ", 1)[1].strip()
+        except IndexError:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Missing or invalid authentication token"}
+            )
+        if not token:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Missing or invalid authentication token"}
+            )
+        username = db_verify_session(token)
+        if not username:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Session expired or invalid"}
+            )
+        request.state.username = username
+    
+    return await call_next(request)
+
+
+async def get_current_user(request: Request):
     """FastAPI dependency to secure API routes using a Bearer token."""
+    if hasattr(request.state, "username"):
+        return request.state.username
+
+    authorization = request.headers.get("Authorization")
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid authentication token"
         )
-    token = authorization.split(" ")[1]
+    try:
+        token = authorization.split(" ", 1)[1].strip()
+    except IndexError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authentication token"
+        )
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authentication token"
+        )
     username = db_verify_session(token)
     if not username:
         raise HTTPException(
@@ -213,6 +260,7 @@ async def get_current_user(authorization: str = Header(None)):
             detail="Session expired or invalid"
         )
     return username
+
 
 
 # ─── Outbound Call Trigger ─────────────────────────────────────────────────────
