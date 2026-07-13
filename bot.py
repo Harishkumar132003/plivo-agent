@@ -29,6 +29,7 @@ from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 from pipecat.workers.runner import WorkerRunner
+from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 
 from database import (
     db_save_call,
@@ -473,6 +474,7 @@ async def bot(
         audio_out_enabled=True,
         add_wav_header=False,
         serializer=serializer,
+        audio_in_filter=RNNoiseFilter(),
     )
 
     transport = FastAPIWebsocketTransport(websocket=websocket, params=params)

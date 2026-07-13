@@ -19,25 +19,24 @@ from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import TransportParams
 
 from bot import run_bot
+from audio_logger import LoggingRNNoiseFilter
 
 
 async def bot(runner_args: RunnerArguments) -> None:
     """Entry point picked up by Pipecat's local dev runner (SmallWebRTC)."""
 
+    # audio_filter = LoggingRNNoiseFilter(run_id="local_test")
+
     transport_params = {
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            # audio_in_filter=audio_filter,
         ),
     }
 
     transport = await create_transport(runner_args, transport_params)
 
-    # call_uuid=None / host=None disables the Plivo hangup + transfer REST calls
-    # (those branches are already guarded with `if call_uuid:` / `if host:` in
-    # run_bot, so they just no-op locally — end_conversation and forward_call
-    # will still be called by the model and logged, just without an actual
-    # phone leg to hang up or transfer).
     await run_bot(
         transport,
         runner_args.handle_sigint,
