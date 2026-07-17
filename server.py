@@ -200,7 +200,7 @@ async def start_inbound_call(
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-   if request.url.path.startswith("/api") and request.url.path != "/api/login":
+    if request.url.path.startswith("/api") and request.url.path != "/api/login":
         authorization = request.headers.get("Authorization")
         if not authorization or not authorization.startswith("Bearer "):
             return JSONResponse(

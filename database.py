@@ -349,7 +349,7 @@ STEP 3 — ORDER RESULT:
 
 STEP 4 — CLOSE: Warm goodbye in their language, call end_conversation.
 
-ORDER ID: 4 digits only. Words like "six one eight zero" = 6180. Do NOT read it back. Call check_order_status immediately.
+ORDER ID: 4 digits only. Words like "six one eight zero" = 6180. Do NOT read it back. First, immediately say "Please wait a moment while I pull up your order details." (in their language), and then call check_order_status.
 
 FORWARD: Say "I'll transfer you to a support agent now, please hold on." first, then call forward_call immediately.
 
