@@ -13,6 +13,7 @@ import "./App.scss";
 function App() {
   const [calls, setCalls] = useState([]);
   const [stats, setStats] = useState(null);
+  const [balance, setBalance] = useState(null);
   const [settings, setSettings] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
@@ -134,6 +135,18 @@ function App() {
     }
   }, [token]);
 
+  const fetchBalance = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await apiFetch("/api/account/balance");
+      if (!response.ok) return;
+      const data = await response.json();
+      setBalance(data);
+    } catch (err) {
+      console.error("Error fetching balance:", err);
+    }
+  }, [token]);
+
   // Fetch Calls
   const fetchCalls = useCallback(async () => {
     if (!token) return;
@@ -248,7 +261,7 @@ function App() {
           if (window.location.pathname !== "/dashboard") {
             window.history.pushState({}, "", "/dashboard");
           }
-          await fetchStats();
+          await Promise.all([fetchStats(), fetchBalance()]);
         } catch (error) {
           console.error("Initial fetch error:", error);
           handleLogout();
@@ -378,7 +391,7 @@ function App() {
       <div className="dashboard-container">
         <div className="page-content">
           {/* Stats */}
-          <StatsCards calls={calls} stats={stats} />
+          <StatsCards calls={calls} stats={stats} balance={balance} />
 
           {/* Tabs */}
           <div className="tabs-container">
