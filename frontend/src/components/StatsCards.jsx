@@ -1,13 +1,17 @@
 import React from "react";
-import { Phone, ShoppingBag, Zap } from "lucide-react";
+import { Phone, ShoppingBag, Zap, Wallet } from "lucide-react";
 
-export const StatsCards = ({ calls = [], stats }) => {
+export const StatsCards = ({ calls = [], stats, balance }) => {
   const totalCalls = (stats && typeof stats.total_calls === "number") ? stats.total_calls : calls.length;
   const ordersChecked = (stats && typeof stats.orders_checked === "number") ? stats.orders_checked : calls.filter((call) => call.order_number).length;
   const totalCost = (stats && typeof stats.total_cost === "number") ? stats.total_cost : calls.reduce(
     (sum, call) => sum + (call.total_cost || 0),
     0,
   );
+
+  const plivoBalance = balance && typeof balance.balance === "number"
+    ? `$${balance.balance.toFixed(2)}`
+    : "—";
 
   const cardItems = [
     {
@@ -36,6 +40,15 @@ export const StatsCards = ({ calls = [], stats }) => {
       iconBg: "rgba(245,158,11,0.1)",
       iconColor: "#d97706",
       accentBar: "#f59e0b",
+    },
+    {
+      icon: Wallet,
+      label: "Plivo Balance",
+      value: plivoBalance,
+      desc: "Current Plivo account credit",
+      iconBg: "rgba(99,102,241,0.1)",
+      iconColor: "#6366f1",
+      accentBar: "#6366f1",
     },
   ];
 

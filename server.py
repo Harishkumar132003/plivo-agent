@@ -597,6 +597,31 @@ def get_calls_stats_api(username: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/account/balance")
+def get_account_balance(username: str = Depends(get_current_user)):
+    """Retrieve the current Plivo account balance using the REST API directly."""
+    import requests
+    auth_id = os.getenv("PLIVO_AUTH_ID")
+    auth_token = os.getenv("PLIVO_AUTH_TOKEN")
+    
+    if not auth_id or not auth_token:
+        raise HTTPException(status_code=500, detail="Plivo credentials not configured")
+        
+    url = f"https://api.plivo.com/v1/Account/{auth_id}/"
+    try:
+        resp = requests.get(url, auth=(auth_id, auth_token), timeout=10)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=f"Plivo API error: {resp.text}")
+        
+        data = resp.json()
+        return {
+            "balance": float(data.get("cash_credits", 0)),
+            "currency": "USD",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class SettingsUpdateRequest(BaseModel):
     welcome_message: str
     system_prompt: str

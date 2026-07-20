@@ -102,13 +102,29 @@ The bot supports two deployment modes controlled by the `ENV` variable:
 
 The bot automatically receives the caller's and called phone numbers for personalized responses via the body parameter.
 
-### Run the Local Server
+### Run the Application (Backend & Frontend)
 
-`server.py` runs a FastAPI server, which Plivo uses to coordinate the inbound call. Run the server using:
+This project consists of two parts: the FastAPI backend server and the React frontend dashboard.
+
+**1. Start the Backend Server**
+
+The `server.py` runs a FastAPI server on port 7860, which Plivo uses to coordinate inbound calls and provides the API for the dashboard.
 
 ```bash
 uv run server.py
 ```
+
+**2. Start the Frontend Dashboard (Development)**
+
+To view the dashboard and manage settings locally during development, you can run the React frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+> **Note:** To serve the production-ready frontend directly from the backend server at `http://localhost:7860/dashboard`, run `npm run build` in the `frontend` folder. The backend will automatically serve the compiled files.
 
 ### Call your Bot
 
