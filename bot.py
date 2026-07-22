@@ -116,12 +116,12 @@ async def run_bot(
 
     # ─── TOOLS ────────────────────────────────────────────────────────────────
 
-    @tool_options(cancel_on_interruption=False, timeout_secs=15)
+    @tool_options(cancel_on_interruption=False, timeout_secs=10)
     async def check_order_status(params: FunctionCallParams, order_id: str) -> None:
         """Check the current status of a customer's order from our system.
 
-        IMPORTANT: Only call this function AFTER the customer has spoken their 4-digit Order ID
-        in their most recent message. Never call this speculatively.
+        IMPORTANT: Call this function IMMEDIATELY without speaking any text first when the customer provides their 4-digit Order ID.
+        Do NOT output any waiting text or guess the order status.
 
         Args:
             order_id: The 4-digit numeric order ID spoken by the customer, e.g. "6180".
@@ -138,7 +138,7 @@ async def run_bot(
                     url,
                     json=payload,
                     headers={"Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=12),
+                    timeout=aiohttp.ClientTimeout(total=6),
                 ) as resp:
                     data = await resp.json(content_type=None)
 
