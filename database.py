@@ -37,9 +37,8 @@ def init_db():
         print(f"Successfully connected to MongoDB database: {DB_NAME}")
         # Seed default admin user if database is empty of users
         db_seed_default_user()
-    except PyMongoError as e:
-        print(f"MongoDB connection failed during initialization: {e}")
-        raise e
+    except Exception as e:
+        print(f"MongoDB connection warning during initialization: {e}")
 
 def db_create_call(phone_number: str, call_uuid: str = "") -> str:
     """Creates a new call record in MongoDB and returns its string _id."""
@@ -374,7 +373,8 @@ def db_get_settings(bypass_cache: bool = False):
             }
             db.settings.insert_one(settings)
         elif "Please wait a moment" in settings.get("system_prompt", ""):
-           settings["system_prompt"] = DEFAULT_SYSTEM_PROMPT
+            # Upgrade legacy prompt in DB to remove filler speech instruction
+            settings["system_prompt"] = DEFAULT_SYSTEM_PROMPT
             db.settings.update_one(
                 {"key": "agent_settings"},
                 {"$set": {"system_prompt": DEFAULT_SYSTEM_PROMPT}}
@@ -384,7 +384,7 @@ def db_get_settings(bypass_cache: bool = False):
             settings["_id"] = str(settings["_id"])
         _settings_cache = settings
         return settings
-    except PyMongoError as e:
+    except Exception as e:
         print(f"Failed to retrieve settings from MongoDB: {e}")
         # Return default dict if DB fails
         return {
