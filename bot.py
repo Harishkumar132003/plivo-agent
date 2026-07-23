@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import time
 from datetime import datetime
 import plivo
@@ -120,17 +121,20 @@ async def run_bot(
     async def check_order_status(params: FunctionCallParams, order_id: str) -> None:
         """Check the current status of a customer's order from our system.
 
-        IMPORTANT: Call this function IMMEDIATELY without speaking any text first when the customer provides their 4-digit Order ID.
-        Do NOT output any waiting text or guess the order status.
+        IMPORTANT: When the customer provides their Order ID, say "Please wait a moment while I check your order status" (or Tamil/Malayalam equivalent) to the caller, and call check_order_status.
 
         Args:
-            order_id: The 4-digit numeric order ID spoken by the customer, e.g. "6180".
+            order_id: The 4-digit numeric order ID spoken by the customer, e.g. "6180" or "4 5 6 7".
                       Convert spoken numbers to digits before calling.
         """
-        logger.info(f"Zoho lookup → order_id={order_id}")
+        # Clean order_id by extracting digits (e.g. "4 5 6 7" -> "4567")
+        order_id_digits = re.sub(r"\D", "", order_id)
+        clean_order_id = order_id_digits if len(order_id_digits) >= 3 else order_id.strip()
+
+        logger.info(f"Zoho lookup → raw={order_id!r} cleaned={clean_order_id!r}")
 
         url = f"{ZOHO_API_URL}?publickey={ZOHO_PUBLIC_KEY}"
-        payload = {"order_id": order_id.strip()}
+        payload = {"order_id": clean_order_id}
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -143,13 +147,12 @@ async def run_bot(
                     data = await resp.json(content_type=None)
 
             status = data.get("result", "")
-            logger.info(f"Zoho response → order={order_id} status={status!r}")
+            logger.info(f"Zoho response → order={clean_order_id} status={status!r}")
             nonlocal order_number
-            order_number = order_id.strip()
+            order_number = clean_order_id
             await params.result_callback({"status": status})
-
         except Exception as e:
-            logger.error(f"Zoho API error for {order_id}: {e}")
+            logger.error(f"Zoho API error for {clean_order_id}: {e}")
             await params.result_callback({"error": "Failed to retrieve order status"})
 
     @tool_options(cancel_on_interruption=False, timeout_secs=8)

@@ -328,7 +328,7 @@ RULES:
 - Never fabricate order information. Only relay what check_order_status returns.
 - LANGUAGE FLOW:
   * Automatic Switch: If you detect the customer speaking Tamil or Malayalam, call set_language immediately. Change language and converse in it. Do NOT re-mention or repeatedly talk about the language in subsequent turns.
-  * Requested Switch: If the customer explicitly requests a language change (e.g. "please speak in Tamil" or "change to Malayalam"), call set_language, inform them once in the target language that you have switched (e.g. "Sure, switching to Tamil" or "ശരി, മലയാളത്തിൽ സംസാരിക്കാം"), and then continue in that language.
+  * Requested Switch: If the customer explicitly requests a language change (e.g. "please speak in Tamil" or "change to Malayalam"), call set_language, inform them once in the target language that you have switched (e.g. "Sure, switching to Tamil" or "சரி, தமிழுக்கு மாறுகிறேன்"), and then continue in that language.
   * Malayalam vs Tamil: Clearly identify the difference between Malayalam and Tamil. They are distinct languages with different vocabularies and scripts. Never mix Tamil words/grammar/scripts into Malayalam, or Malayalam words/grammar/scripts into Tamil. Keep them strictly separate and accurate.
 
 FLOW:
@@ -336,7 +336,7 @@ FLOW:
 STEP 1 — GREET IMMEDIATELY: As soon as the call connects, YOU speak first. Greet the caller by saying exactly: "{welcome_message}". Never wait for the caller to speak first.
 
 STEP 2 — After customer speaks, classify IMMEDIATELY and act:
-  A. ORDER STATUS → ask for their 4-digit Order ID (once only). When provided, call check_order_status IMMEDIATELY without speaking any text beforehand.
+  A. ORDER STATUS → Ask for their 4-digit Order ID. When provided, IMMEDIATELY say "Please wait a moment while I check your order status" (in Tamil: "தயவுசெய்து ஒரு கணம் காத்திருக்கவும், சரிபார்க்கிறேன்" / in Malayalam: "ദയവായി ഒരു നിമിഷം കാത്തിരിക്കൂ, പരിശോധിക്കാം") and call check_order_status.
   B. ANYTHING ELSE (refunds, cancellations, returns, complaints, sales, speak to human) → say "I'll transfer you to a support agent now, please hold on." in their language, then call forward_call.
   C. UNCLEAR → one short clarifying question, then classify.
 
@@ -349,7 +349,7 @@ STEP 3 — ORDER RESULT:
 
 STEP 4 — CLOSE: Warm goodbye in their language, call end_conversation.
 
-ORDER ID: 4 digits only. Words like "six one eight zero" = 6180. Do NOT read it back. Do NOT say any filler or waiting text (such as "Please wait a moment..."). Execute check_order_status immediately and state the API result in a single concise sentence once fetched.
+ORDER ID: 4 digits (e.g. "4 5 6 7" or "four five six seven" = 4567). Speak "Please wait a moment while I check your order status" (or Tamil/Malayalam equivalent) immediately when the order ID is spoken, and execute check_order_status. Then state the API result in a single concise sentence once fetched.
 
 FORWARD: Say "I'll transfer you to a support agent now, please hold on." first, then call forward_call immediately.
 
@@ -372,8 +372,8 @@ def db_get_settings(bypass_cache: bool = False):
                 "forward_to_number": default_forward
             }
             db.settings.insert_one(settings)
-        elif "Please wait a moment" in settings.get("system_prompt", ""):
-            # Upgrade legacy prompt in DB to remove filler speech instruction
+        elif "Please wait a moment" not in settings.get("system_prompt", ""):
+            # Update prompt in DB to include the new 'Please wait a moment' flow
             settings["system_prompt"] = DEFAULT_SYSTEM_PROMPT
             db.settings.update_one(
                 {"key": "agent_settings"},
